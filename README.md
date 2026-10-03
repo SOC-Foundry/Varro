@@ -160,6 +160,8 @@ server runs in open (lab) mode, where reads are unauthenticated.
 | GET/POST | `/api/v1/orgs`                   | admin          | List / create orgs                |
 | POST   | `/api/v1/orgs/{id}/tokens`         | admin          | Mint org enrollment token         |
 | POST   | `/api/v1/orgs/{id}/members`        | admin          | Invite a user by email            |
+| DELETE | `/api/v1/orgs/{id}/members/{email}`| admin          | Remove a member from an org       |
+| DELETE | `/api/v1/endpoints/{id}`           | admin          | Delete an endpoint + all its data |
 | GET    | `/auth/login`, `/auth/callback`    | —              | Google sign-in flow               |
 | GET    | `/api/v1/endpoints`                | read auth      | Fleet list + headline metrics     |
 | GET    | `/api/v1/endpoints/{id}/latest`    | read auth      | Latest full snapshot              |

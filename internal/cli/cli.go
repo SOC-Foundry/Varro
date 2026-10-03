@@ -68,6 +68,25 @@ func postJSON(ctx context.Context, base, token, path string, body, out any) erro
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+func doDelete(ctx context.Context, base, token, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, base+path, nil)
+	if err != nil {
+		return err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s returned %s", base+path, resp.Status)
+	}
+	return nil
+}
+
 func serverFlag(fs *flag.FlagSet) *string {
 	def := os.Getenv("VARRO_SERVER")
 	if def == "" {

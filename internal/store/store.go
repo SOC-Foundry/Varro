@@ -280,6 +280,35 @@ ORDER BY e.hostname`, args...)
 	return out, rows.Err()
 }
 
+// DeleteEndpoint removes an endpoint and every trace of it: samples, events,
+// alerts, and its agent token. Returns whether the endpoint existed.
+func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`DELETE FROM samples WHERE endpoint_id = ?`,
+		`DELETE FROM events WHERE endpoint_id = ?`,
+		`DELETE FROM alerts WHERE endpoint_id = ?`,
+		`DELETE FROM agent_tokens WHERE agent_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
+			return false, err
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM endpoints WHERE id = ?`, endpointID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, tx.Commit()
+}
+
 // EndpointOrg returns the org an endpoint belongs to, or "" if unknown.
 func (s *Store) EndpointOrg(ctx context.Context, endpointID string) (string, error) {
 	var orgID string

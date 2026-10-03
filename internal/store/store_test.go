@@ -153,6 +153,31 @@ func TestOrgIsolation(t *testing.T) {
 	if err != nil || gotOrg != orgB.ID {
 		t.Fatalf("token resolves to %q (err %v), want %q", gotOrg, err, orgB.ID)
 	}
+
+	// Removing a member revokes their org visibility.
+	if existed, err := s.RemoveOrgMember(ctx, orgA.ID, "user@acme.com"); err != nil || !existed {
+		t.Fatalf("remove member: existed=%v err=%v", existed, err)
+	}
+	if orgs, _ := s.UserOrgs(ctx, "user@acme.com"); len(orgs) != 0 {
+		t.Fatalf("member should have no orgs after removal, got %+v", orgs)
+	}
+	if existed, _ := s.RemoveOrgMember(ctx, orgA.ID, "user@acme.com"); existed {
+		t.Fatal("second removal should report not-existed")
+	}
+
+	// Deleting an endpoint purges it and its data but leaves other orgs alone.
+	if existed, err := s.DeleteEndpoint(ctx, "ep-a"); err != nil || !existed {
+		t.Fatalf("delete endpoint: existed=%v err=%v", existed, err)
+	}
+	if all, _ := s.Endpoints(ctx, nil); len(all) != 1 || all[0].ID != "ep-b" {
+		t.Fatalf("only ep-b should remain, got %+v", all)
+	}
+	if evs, _ := s.Events(ctx, "", nil, 10); len(evs) != 1 || evs[0].EndpointID != "ep-b" {
+		t.Fatalf("ep-a events should be purged, got %+v", evs)
+	}
+	if existed, _ := s.DeleteEndpoint(ctx, "ep-a"); existed {
+		t.Fatal("second delete should report not-existed")
+	}
 }
 
 func TestPrune(t *testing.T) {

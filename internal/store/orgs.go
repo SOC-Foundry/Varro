@@ -152,6 +152,18 @@ ON CONFLICT(org_id, email) DO UPDATE SET role=excluded.role`, orgID, email, role
 	return err
 }
 
+// RemoveOrgMember drops a member from an org. Returns whether the membership
+// existed.
+func (s *Store) RemoveOrgMember(ctx context.Context, orgID, email string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM org_members WHERE org_id = ? AND email = ?`, orgID, email)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // UserOrgs lists orgs an email belongs to.
 func (s *Store) UserOrgs(ctx context.Context, email string) ([]model.Org, error) {
 	rows, err := s.db.QueryContext(ctx, `

@@ -118,6 +118,52 @@ func (s *Server) handleOrgToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"org_id": org.ID, "token": token})
 }
 
+// handleEndpointRemove deletes a decommissioned endpoint and all its data
+// (admin only). Distinct from token revocation, which cuts off ingest but
+// keeps the endpoint and its history visible.
+func (s *Server) handleEndpointRemove(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	existed, err := s.store.DeleteEndpoint(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !existed {
+		http.Error(w, "unknown endpoint", http.StatusNotFound)
+		return
+	}
+	s.log.Info("endpoint removed", "endpoint", r.PathValue("id"))
+	writeJSON(w, map[string]bool{"removed": true})
+}
+
+// handleOrgRemoveMember drops a member from an org (admin only).
+func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	email := strings.ToLower(r.PathValue("email"))
+	existed, err := s.store.RemoveOrgMember(r.Context(), org.ID, email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !existed {
+		http.Error(w, "not a member", http.StatusNotFound)
+		return
+	}
+	s.log.Info("org member removed", "org", org.ID, "email", email)
+	writeJSON(w, map[string]bool{"removed": true})
+}
+
 // handleOrgInvite adds a member to an org by email (admin only).
 func (s *Server) handleOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if !s.adminAuthorized(r) {

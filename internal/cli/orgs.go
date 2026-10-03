@@ -72,6 +72,52 @@ func OrgToken(ctx context.Context, args []string) error {
 	return nil
 }
 
+// EndpointRemove deletes a decommissioned endpoint and all of its history
+// (admin). Use revoke instead to cut off a machine but keep its data.
+func EndpointRemove(ctx context.Context, args []string) error {
+	name, rest := splitArgs(args)
+	fs := flag.NewFlagSet("endpoint-remove", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	if name == "" {
+		return fmt.Errorf("usage: varro endpoint-remove <endpoint> [--server URL] [--token ADMIN]")
+	}
+
+	ep, err := resolveEndpoint(ctx, *base, *token, name)
+	if err != nil {
+		return err
+	}
+	if err := doDelete(ctx, *base, *token, "/api/v1/endpoints/"+url.PathEscape(ep.ID)); err != nil {
+		return err
+	}
+	fmt.Printf("endpoint %s (%s) and all its data removed\n", ep.Hostname, ep.ID)
+	return nil
+}
+
+// OrgRemoveMember drops a member from an org (admin).
+func OrgRemoveMember(ctx context.Context, args []string) error {
+	ref, rest := splitArgs(args)
+	var email string
+	if len(rest) > 0 && rest[0][0] != '-' {
+		email, rest = rest[0], rest[1:]
+	}
+	fs := flag.NewFlagSet("org-remove-member", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	if ref == "" || email == "" {
+		return fmt.Errorf("usage: varro org-remove-member <org-id-or-name> <email>")
+	}
+
+	if err := doDelete(ctx, *base, *token,
+		"/api/v1/orgs/"+url.PathEscape(ref)+"/members/"+url.PathEscape(email)); err != nil {
+		return err
+	}
+	fmt.Printf("%s removed from org %s — access ends at their next request\n", email, ref)
+	return nil
+}
+
 // OrgInvite adds a member (by email) to an org (admin).
 func OrgInvite(ctx context.Context, args []string) error {
 	ref, rest := splitArgs(args)
