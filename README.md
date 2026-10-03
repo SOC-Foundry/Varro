@@ -42,7 +42,25 @@ endpoint C ──┘  (per-agent tokens,             │
   and **SMTP email**; selected security events (default: autostart changes,
   new NICs, new listeners) are forwarded as they arrive.
 
-## Quick start
+## Installing agents on endpoints
+
+Each Linux endpoint joins with one command, using its org's enrollment token
+(the token decides which org the machine lands in):
+
+```sh
+curl -sSL https://<collector-host>/install.sh | sudo VARRO_TOKEN=<org-enrollment-token> sh
+```
+
+The script downloads the right binary from the latest GitHub release, verifies
+its checksum, installs a systemd service, and the agent enrolls itself. Mint
+tokens with `varro org-token <org>`. For macOS/Windows, grab the binary from
+[Releases](https://github.com/SOC-Foundry/Varro/releases) and run
+`varro agent --server ... --token ...` under launchd / a Windows service.
+
+Releases are published automatically when a `v*` tag is pushed (see
+`.github/workflows/release.yml`).
+
+## Quick start (from source)
 
 ```sh
 go build -o varro ./cmd/varro

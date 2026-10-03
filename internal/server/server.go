@@ -24,6 +24,9 @@ import (
 //go:embed web
 var webFS embed.FS
 
+//go:embed install.sh
+var installScript string
+
 // maxIngestBody bounds a single ingest request (an agent can batch up to an
 // hour of buffered samples).
 const maxIngestBody = 32 << 20
@@ -80,6 +83,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	mux.HandleFunc("GET /install.sh", s.handleInstallScript)
 
 	webRoot, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -489,6 +493,15 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Write([]byte(b.String()))
+}
+
+// handleInstallScript serves the agent install one-liner script with this
+// collector's URL baked in. Intentionally unauthenticated: it contains no
+// secrets (the org token is supplied by the operator at install time).
+func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Write([]byte(strings.ReplaceAll(installScript, "__VARRO_SERVER__",
+		strings.TrimSuffix(s.cfg.Google.BaseURL, "/"))))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
