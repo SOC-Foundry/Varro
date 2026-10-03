@@ -53,7 +53,13 @@ curl -sSL https://<collector-host>/install.sh | sudo VARRO_TOKEN=<org-enrollment
 
 The script downloads the right binary from the latest GitHub release, verifies
 its checksum, installs a systemd service, and the agent enrolls itself. Mint
-tokens with `varro org-token <org>`. For macOS/Windows, grab the binary from
+tokens with `varro org-token <org>`.
+
+Agents **auto-upgrade**: the collector advertises its own version (override
+with `--agent-desired-version`, disable with `--agent-auto-upgrade=false`),
+and any Linux/macOS agent on a different version downloads that release,
+verifies its checksum, swaps its binary, and re-execs — buffered samples are
+spooled across the restart. Dev builds (`make build`) never self-replace. For macOS/Windows, grab the binary from
 [Releases](https://github.com/SOC-Foundry/Varro/releases) and run
 `varro agent --server ... --token ...` under launchd / a Windows service.
 

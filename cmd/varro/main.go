@@ -29,7 +29,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.4.1"
+var version = "0.4.2"
 
 func main() {
 	agent.Version = version
@@ -187,6 +187,12 @@ func runServer(ctx context.Context, args []string) error {
 		"comma-separated emails promoted to instance admin at sign-in (first user is always admin)")
 	metricsToken := fs.String("metrics-token", os.Getenv("VARRO_METRICS_TOKEN"),
 		"if set, /metrics requires this bearer token")
+	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
+		"push the desired agent version so agents self-upgrade from GitHub releases")
+	desiredVersion := fs.String("agent-desired-version", "",
+		"pin agents to a specific released version (default: this server's version)")
+	releaseRepo := fs.String("release-repo", "SOC-Foundry/Varro",
+		"GitHub repo agents download release binaries from")
 	fs.Parse(args)
 	if *token == "" {
 		return fmt.Errorf("server requires --token (or VARRO_TOKEN)")
@@ -241,6 +247,16 @@ func runServer(ctx context.Context, args []string) error {
 		},
 		AdminEmails:  admins,
 		MetricsToken: *metricsToken,
+		AgentDesiredVersion: func() string {
+			if !*autoUpgrade {
+				return ""
+			}
+			if *desiredVersion != "" {
+				return *desiredVersion
+			}
+			return version
+		}(),
+		ReleaseRepo: *releaseRepo,
 	}, st, log)
 	return srv.Run(ctx)
 }

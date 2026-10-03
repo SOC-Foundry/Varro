@@ -83,9 +83,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	a.loadSpool()
-	if serverInterval := a.fetchConfig(ctx); serverInterval > 0 {
-		a.interval = serverInterval
+	rc := a.fetchConfig(ctx)
+	if rc.IntervalSeconds > 0 {
+		a.interval = time.Duration(rc.IntervalSeconds) * time.Second
 	}
+	a.maybeUpgrade(ctx, rc)
 
 	a.log.Info("agent started",
 		"agent_id", a.collector.AgentID(),
@@ -129,11 +131,13 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		if time.Since(lastConfigFetch) >= configFetchEvery {
 			lastConfigFetch = time.Now()
-			if newInterval := a.fetchConfig(ctx); newInterval > 0 && newInterval != a.interval {
+			rc := a.fetchConfig(ctx)
+			if newInterval := time.Duration(rc.IntervalSeconds) * time.Second; rc.IntervalSeconds > 0 && newInterval != a.interval {
 				a.log.Info("server changed sampling interval", "from", a.interval, "to", newInterval)
 				a.interval = newInterval
 				ticker.Reset(a.interval)
 			}
+			a.maybeUpgrade(ctx, rc)
 		}
 	}
 }
@@ -309,26 +313,24 @@ func (a *Agent) loadSpool() {
 
 // ---- server-pushed config ----
 
-// fetchConfig asks the collector for agent settings. Returns the server's
-// desired interval, or 0 when unavailable.
-func (a *Agent) fetchConfig(ctx context.Context) time.Duration {
+// fetchConfig asks the collector for agent settings (sampling interval,
+// desired agent version). Returns a zero value when unavailable.
+func (a *Agent) fetchConfig(ctx context.Context) remoteConfig {
 	req, err := a.authedRequest(ctx, http.MethodGet, "/api/v1/agent/config", nil)
 	if err != nil {
-		return 0
+		return remoteConfig{}
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return 0
+		return remoteConfig{}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0
+		return remoteConfig{}
 	}
-	var out struct {
-		IntervalSeconds int `json:"interval_seconds"`
+	var out remoteConfig
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return remoteConfig{}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.IntervalSeconds < 1 {
-		return 0
-	}
-	return time.Duration(out.IntervalSeconds) * time.Second
+	return out
 }

@@ -48,6 +48,11 @@ type Config struct {
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
 	MetricsToken string          // if set, /metrics requires this bearer token
+
+	// Agent auto-upgrade: agents differing from AgentDesiredVersion download
+	// that release from ReleaseRepo and replace themselves. Empty disables.
+	AgentDesiredVersion string
+	ReleaseRepo         string
 }
 
 type Server struct {
@@ -262,9 +267,14 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, map[string]int{
+	resp := map[string]any{
 		"interval_seconds": int(s.cfg.AgentInterval / time.Second),
-	})
+	}
+	if v := s.cfg.AgentDesiredVersion; v != "" && v != "dev" {
+		resp["desired_version"] = v
+		resp["repo"] = s.cfg.ReleaseRepo
+	}
+	writeJSON(w, resp)
 }
 
 // handleRevokeToken revokes an agent's token (admin action, master token).
