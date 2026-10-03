@@ -1,0 +1,15 @@
+[Unit]
+Description=Varro telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/varro agent --server http://collector-host:9477 --interval 10s
+Environment=VARRO_TOKEN=change-me
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

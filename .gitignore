@@ -1,0 +1,4 @@
+/varro
+*.db
+*.db-wal
+*.db-shm

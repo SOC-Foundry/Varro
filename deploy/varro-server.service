@@ -1,0 +1,19 @@
+[Unit]
+Description=Varro telemetry collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/varro server --listen :9477 --db /var/lib/varro/varro.db
+Environment=VARRO_TOKEN=change-me
+StateDirectory=varro
+WorkingDirectory=/var/lib/varro
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
