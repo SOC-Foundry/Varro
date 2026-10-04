@@ -971,7 +971,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 }
 
 function edgeLabel(e) {
-  if (!e.internal) return `${e.count} conns`;
+  if (!e.internal) return e.bytes ? fmtBytes(e.bytes, "") : `${e.count} conns`;
   const ps = e.processes ?? [];
   let label = ps.slice(0, 2).map(p => `${p.process}:${p.port}`).join("  ");
   if (ps.length > 2) label += `  +${ps.length - 2}`;
@@ -1033,10 +1033,13 @@ function tickTopo() {
     const ctrl = edgeCtrl(a, b, bow);
     e._geom = { a, b, ctrl };
 
-    // Thickness scales with traffic: distinct process/port paths for
-    // internal edges, live connection count for external — log-scaled so a
-    // busy edge is visibly heavier without dominating the canvas.
-    const volume = e.internal ? (e.processes ?? []).length : e.count;
+    // Thickness scales with traffic: distinct process/port paths for internal
+    // edges; for external edges, real conntrack byte volume when available
+    // (log of KB), else connection count. Log-scaled so a busy edge is
+    // visibly heavier without dominating the canvas.
+    const volume = e.internal
+      ? (e.processes ?? []).length
+      : (e.bytes ? Math.log2(1 + e.bytes / 1024) : e.count);
     const width = Math.min(1.2 + 1.3 * Math.log2(1 + volume), 7);
     ctx.globalAlpha = dimmed ? 0.18 : 1;
     ctx.strokeStyle = isSel ? "#79c0ff" : e.internal ? "#3fb950" : "#3d444d";
@@ -1158,8 +1161,9 @@ function renderTopoInfo() {
       const nm = (e.remote_names ?? [])[i];
       return nm ? `${esc(nm)} (${esc(ip)})` : esc(ip);
     }).join("<br>");
+    const vol = e.bytes ? ` · ${fmtBytes(e.bytes, "")} transferred` : "";
     box.innerHTML = `<h3>${name(e.src)} → internet</h3>
-      <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"} right now<br>
+      <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"}${vol}<br>
       <span style="color:var(--dim)">top remotes:<br>${remotes}</span></div>`;
     return;
   }

@@ -240,6 +240,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// internal traffic isn't double-counted as external.
 	type extAgg struct {
 		count   int
+		bytes   uint64
 		remotes map[string]int
 	}
 	ext := map[string]*extAgg{}
@@ -271,6 +272,25 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			a.count++
 			a.remotes[ip]++
 		}
+		// conntrack byte totals toward non-fleet remotes give the edge weight.
+		for _, fl := range snap.Network.Flows {
+			ip, _ := splitRemote(fl.Remote)
+			if ip == "" || fleetIPs[ip] || s.ips.lookup(ip) != "" {
+				continue
+			}
+			if p := net.ParseIP(ip); p == nil || p.IsLoopback() {
+				continue
+			}
+			a := ext[id]
+			if a == nil {
+				a = &extAgg{remotes: map[string]int{}}
+				ext[id] = a
+			}
+			a.bytes += fl.BytesOut + fl.BytesIn
+			if a.remotes[ip] == 0 {
+				a.remotes[ip] = 1 // ensure flow-only remotes still surface
+			}
+		}
 	}
 	if len(ext) > 0 {
 		nodes = append(nodes, model.TopoNode{ID: "internet", Hostname: "internet", Online: true})
@@ -290,7 +310,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				names = append(names, s.rdns.name(rcs[i].ip))
 			}
 			edges = append(edges, model.TopoEdge{
-				Src: id, Dst: "internet", Count: a.count, Remotes: remotes, RemoteNames: names,
+				Src: id, Dst: "internet", Count: a.count, Bytes: a.bytes, Remotes: remotes, RemoteNames: names,
 			})
 		}
 	}

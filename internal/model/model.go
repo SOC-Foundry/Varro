@@ -235,6 +235,7 @@ type TopoEdge struct {
 	Internal  bool          `json:"internal"`
 	Processes []EdgeProcess `json:"processes"`
 	Count     int           `json:"count"` // external: connection count; internal: process/port pairs
+	Bytes     uint64        `json:"bytes,omitempty"` // external: total conntrack bytes to these remotes
 	FirstSeen time.Time     `json:"first_seen,omitempty"`
 	LastSeen  time.Time     `json:"last_seen,omitempty"`
 	Remotes   []string      `json:"remotes,omitempty"`        // external edges: sample remote IPs
@@ -354,6 +355,18 @@ type NetworkMetrics struct {
 	RxRate     float64          `json:"rx_rate_bps"`
 	TxRate     float64          `json:"tx_rate_bps"`
 	Interfaces []InterfaceStats `json:"interfaces"`
+	// Flows are per-remote byte-counted flows from the kernel conntrack table
+	// (Linux, when conntrack accounting is available). Continuous — includes
+	// short-lived connections the point-in-time table would miss.
+	Flows []Flow `json:"flows,omitempty"`
+}
+
+// Flow is a byte-counted connection aggregate to one remote endpoint.
+type Flow struct {
+	Proto    string `json:"proto"`
+	Remote   string `json:"remote"` // ip:port
+	BytesOut uint64 `json:"bytes_out"`
+	BytesIn  uint64 `json:"bytes_in"`
 }
 
 type InterfaceStats struct {

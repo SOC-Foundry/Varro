@@ -136,6 +136,7 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.sampleHealth(ctx, now, snap)
 	c.sampleFIM(snap)
 	c.sampleContainers(ctx, snap)
+	c.sampleFlows(snap)
 	snap.Inventory = c.pendingInv
 
 	return snap, nil
