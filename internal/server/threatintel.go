@@ -19,6 +19,13 @@ var defaultThreatFeeds = []string{
 	"https://feodotracker.abuse.ch/downloads/ipblocklist.txt",
 }
 
+// Default malware-hash feed — abuse.ch MalwareBazaar recent SHA-256 export
+// (plaintext, one hash per line). The full corpus is millions of hashes and
+// would exhaust a small collector's memory; the recent export stays bounded.
+var defaultHashFeeds = []string{
+	"https://bazaar.abuse.ch/export/txt/sha256/recent/",
+}
+
 const (
 	threatRefreshEvery = 6 * time.Hour
 	// Re-alert the same (endpoint,indicator) pair at most this often, so a
@@ -26,40 +33,63 @@ const (
 	threatRealertAfter = 1 * time.Hour
 )
 
-// threatIntel holds the current known-bad IP set and recent-match dedup state.
+// threatIntel holds known-bad IP and malware-hash sets plus match dedup state.
 type threatIntel struct {
-	feeds []string
+	feeds     []string
+	hashFeeds []string
 
 	mu       sync.RWMutex
 	badIPs   map[string]bool
+	badHash  map[string]bool
 	loadedAt time.Time
 
 	alertMu   sync.Mutex
-	lastAlert map[string]time.Time // "endpoint|ip" -> when last emitted
+	lastAlert map[string]time.Time // "endpoint|indicator" -> when last emitted
 }
 
-func newThreatIntel(feeds []string) *threatIntel {
+func newThreatIntel(feeds, hashFeeds []string) *threatIntel {
 	if len(feeds) == 0 {
 		feeds = defaultThreatFeeds
 	}
+	if len(hashFeeds) == 0 {
+		hashFeeds = defaultHashFeeds
+	}
 	return &threatIntel{
 		feeds:     feeds,
+		hashFeeds: hashFeeds,
 		badIPs:    map[string]bool{},
+		badHash:   map[string]bool{},
 		lastAlert: map[string]time.Time{},
 	}
 }
 
-// count returns how many indicators are loaded.
+// count returns how many IP indicators are loaded.
 func (t *threatIntel) count() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.badIPs)
 }
 
+// hashCount returns how many malware-hash indicators are loaded.
+func (t *threatIntel) hashCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return len(t.badHash)
+}
+
 func (t *threatIntel) isBad(ip string) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.badIPs[ip]
+}
+
+func (t *threatIntel) isBadHash(h string) bool {
+	if h == "" {
+		return false
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.badHash[strings.ToLower(h)]
 }
 
 // shouldAlert reports whether a fresh match for (endpoint,ip) should emit,
@@ -119,15 +149,59 @@ func (t *threatIntel) refresh(ctx context.Context, log logger) {
 		resp.Body.Close()
 		log.Info("threat feed loaded", "feed", feed, "indicators", n)
 	}
-	// Only replace the set if at least one feed yielded data, so a transient
-	// outage doesn't blank out protection.
-	if len(merged) == 0 {
-		return
+	// Malware-hash feeds (sha256 per line).
+	hashes := map[string]bool{}
+	for _, feed := range t.hashFeeds {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, feed, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Error("hash feed fetch failed", "feed", feed, "error", err)
+			continue
+		}
+		n := 0
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if i := strings.IndexAny(line, ",\t "); i > 0 {
+				line = line[:i]
+			}
+			line = strings.Trim(strings.ToLower(line), `"`)
+			if len(line) == 64 && isHex(line) {
+				hashes[line] = true
+				n++
+			}
+		}
+		resp.Body.Close()
+		log.Info("hash feed loaded", "feed", feed, "indicators", n)
 	}
+
+	// Only replace a set if its feeds yielded data, so a transient outage
+	// doesn't blank out protection.
 	t.mu.Lock()
-	t.badIPs = merged
+	if len(merged) > 0 {
+		t.badIPs = merged
+	}
+	if len(hashes) > 0 {
+		t.badHash = hashes
+	}
 	t.loadedAt = time.Now()
 	t.mu.Unlock()
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // logger is the subset of slog we use (keeps the helper testable).
@@ -136,18 +210,16 @@ type logger interface {
 	Error(msg string, args ...any)
 }
 
-// checkThreats matches a snapshot's connections against the indicator set,
-// emitting a rate-limited threat_match event per bad remote.
+// checkThreats matches a snapshot's connections against the known-bad IP set
+// and its new-process hashes against the malware-hash set, emitting
+// rate-limited events per match.
 func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Snapshot) {
-	if s.ti == nil || s.ti.count() == 0 {
+	if s.ti == nil {
 		return
 	}
 	for _, conn := range snap.Security.Connections {
 		ip, _ := splitRemote(conn.Remote)
-		if ip == "" || !s.ti.isBad(ip) {
-			continue
-		}
-		if !s.ti.shouldAlert(snap.AgentID, ip) {
+		if ip == "" || !s.ti.isBad(ip) || !s.ti.shouldAlert(snap.AgentID, ip) {
 			continue
 		}
 		proc := conn.Process
@@ -159,5 +231,15 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventThreatMatch, msg)
 		s.log.Warn("threat-intel match", "endpoint", snap.Hostname, "ip", ip, "process", proc)
 		s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventThreatMatch, Message: msg}})
+	}
+	for _, ph := range snap.ProcHashes {
+		if !s.ti.isBadHash(ph.SHA256) || !s.ti.shouldAlert(snap.AgentID, ph.SHA256) {
+			continue
+		}
+		msg := "MALWARE: " + snap.Hostname + " ran " + ph.Name + " (pid " + itoa(int(ph.PID)) +
+			") whose binary sha256 " + ph.SHA256 + " matches a known-malware feed"
+		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventMalwareMatch, msg)
+		s.log.Warn("malware-hash match", "endpoint", snap.Hostname, "process", ph.Name, "sha256", ph.SHA256)
+		s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventMalwareMatch, Message: msg}})
 	}
 }

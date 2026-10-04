@@ -53,7 +53,8 @@ type Config struct {
 
 	VulnScan    bool     // match inventories against OSV.dev
 	ThreatIntel bool     // match connection remotes against known-bad IP feeds
-	ThreatFeeds []string // override the default indicator feeds
+	ThreatFeeds []string // override the default IP indicator feeds
+	HashFeeds   []string // override the default malware-hash feeds
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
@@ -79,7 +80,7 @@ func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	s := &Server{cfg: cfg, store: st, log: log,
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache()}
 	if cfg.ThreatIntel {
-		s.ti = newThreatIntel(cfg.ThreatFeeds)
+		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds)
 	}
 	return s
 }
@@ -495,6 +496,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.ti != nil {
 		resp["threat_indicators"] = s.ti.count()
+		resp["malware_hash_indicators"] = s.ti.hashCount()
 	}
 	writeJSON(w, resp)
 }

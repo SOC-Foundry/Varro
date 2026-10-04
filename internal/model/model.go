@@ -28,6 +28,16 @@ type Snapshot struct {
 	// Events are state changes the agent observed since the previous sample
 	// (new process, new listening port, autostart modification, ...).
 	Events []Event `json:"events,omitempty"`
+	// ProcHashes are SHA-256 digests of newly-seen process binaries this
+	// sample, for server-side malware-hash matching.
+	ProcHashes []ProcHash `json:"proc_hashes,omitempty"`
+}
+
+// ProcHash is the SHA-256 of a newly-observed process's executable.
+type ProcHash struct {
+	PID    int32  `json:"pid"`
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
 }
 
 // HardwareMetrics carries sensor readings and device I/O rates.
@@ -142,6 +152,7 @@ const (
 	EventConnNewInternal = "conn_new_internal" // first-seen fleet-internal communication path
 	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
 	EventThreatMatch     = "threat_match"      // connection to a known-malicious indicator
+	EventMalwareMatch    = "malware_match"     // process binary matched a known-malware hash
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes

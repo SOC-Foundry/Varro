@@ -314,12 +314,17 @@ func (c *Collector) sampleProcesses(ctx context.Context, snap *model.Snapshot) m
 		// (empty cmdline) are skipped as pure noise.
 		if c.prevProcs != nil && info.Cmdline != "" {
 			if _, seen := c.prevProcs[p.Pid]; !seen && newEvents < maxProcessEvents {
+				hash := hashProcessBinary(p.Pid)
 				msg := fmt.Sprintf("new process %s (pid %d", name, p.Pid)
 				if info.Username != "" {
 					msg += ", user " + info.Username
 				}
-				if hash := hashProcessBinary(p.Pid); hash != "" {
+				if hash != "" {
 					msg += ", sha256 " + hash
+					// Also report structurally for server-side hash matching.
+					snap.ProcHashes = append(snap.ProcHashes, model.ProcHash{
+						PID: p.Pid, Name: name, SHA256: hash,
+					})
 				}
 				msg += "): " + info.Cmdline
 				snap.Events = append(snap.Events, model.Event{Type: model.EventProcessNew, Message: msg})
