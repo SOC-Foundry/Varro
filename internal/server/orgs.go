@@ -312,11 +312,21 @@ func (s *Server) handleOrgToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"org_id": org.ID, "token": token})
 }
 
-// handleEndpointRemove deletes a decommissioned endpoint and all its data
-// (admin only). Distinct from token revocation, which cuts off ingest but
-// keeps the endpoint and its history visible.
+// handleEndpointRemove deletes a decommissioned endpoint and all its data.
+// Permitted for admins of the endpoint's org and up. Distinct from token
+// revocation, which cuts off ingest but keeps the endpoint and its history.
 func (s *Server) handleEndpointRemove(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
+	org, err := s.store.EndpointOrg(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	if org == "" {
+		if !s.adminAuthorized(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	} else if !s.orgAdminAuthorized(r, org) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

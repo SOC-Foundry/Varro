@@ -292,9 +292,23 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// handleRevokeToken revokes an agent's token (admin action, master token).
+// handleRevokeToken revokes an agent's token. Permitted for admins of the
+// endpoint's org and up — cutting off your own org's machine is org-level
+// administration.
 func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
-	if !s.masterAuthorized(r) {
+	org, err := s.store.EndpointOrg(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	if org == "" {
+		// Unknown endpoint: fall back to instance-level auth so the response
+		// doesn't reveal endpoint existence to other tenants.
+		if !s.adminAuthorized(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	} else if !s.orgAdminAuthorized(r, org) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

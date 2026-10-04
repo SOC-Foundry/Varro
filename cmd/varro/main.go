@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.11.3"
+var version = "0.12.0"
 
 func main() {
 	agent.Version = version
