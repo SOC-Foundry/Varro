@@ -101,7 +101,10 @@
   }
   /* process table */
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
-  th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); position: relative; }
+  th.rz { resize: horizontal; overflow: hidden; min-width: 48px; }
+  table.fixed { table-layout: fixed; }
+  table.fixed td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td { padding: 4px 8px; border-bottom: 1px solid #1c2128; white-space: nowrap; }
   td.num, th.num { text-align: right; }
   td.cmd { max-width: 420px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
@@ -156,10 +159,11 @@
       <div class="card"><h3>Network <span class="now" id="netNow"></span></h3><canvas id="netChart"></canvas></div>
       <div class="card"><h3>Disk I/O <span class="now" id="ioNow"></span></h3><canvas id="ioChart"></canvas></div>
       <div class="card wide"><h3>Vulnerabilities <span class="now" id="vulnNow"></span></h3>
-        <div style="overflow-x:auto; max-height:260px; overflow-y:auto"><table>
-          <thead><tr><th>ID</th><th>Package</th><th>Severity</th><th>Summary</th></tr></thead>
+        <div style="overflow-x:auto; max-height:260px; overflow-y:auto"><table class="fixed">
+          <thead><tr><th class="rz" style="width:180px">ID</th><th class="rz" style="width:220px">Package</th><th class="rz" style="width:120px">Severity</th><th>Summary</th></tr></thead>
           <tbody id="vulnRows"></tbody>
         </table></div>
+        <div style="color:var(--dim); font-size:11px; margin-top:4px">Tip: drag a column's right edge to resize.</div>
       </div>
       <div class="card wide"><h3>Posture &amp; Health <span class="now" id="healthNow"></span></h3>
         <div style="display:flex; gap:24px; flex-wrap:wrap">
@@ -257,6 +261,12 @@
         <p style="color:var(--dim); font-size:12px; margin-bottom:8px">One path per line (files or directories, max 100). Agents in this org hash watched files and raise <span style="font-family:var(--mono)">fim_change</span> events on any modification. Applied at the agents' next config poll (≤5 min).</p>
         <textarea id="fimPaths" rows="4" spellcheck="false" style="width:100%; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:var(--mono); font-size:12.5px" placeholder="/etc/nginx/nginx.conf&#10;/var/www/html"></textarea>
         <button id="saveFimBtn" class="abtn" style="margin-top:8px">Save watchlist</button>
+      </div>
+      <div class="card wide"><h3>Audit log <span class="now" id="auditNow"></span></h3>
+        <div style="overflow-x:auto; max-height:320px; overflow-y:auto"><table>
+          <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
+          <tbody id="auditRows"></tbody>
+        </table></div>
       </div>
       <div class="card wide" id="installCard" style="display:none"><h3>Install agents with this token</h3>
         <p style="color:var(--amber); font-size:12.5px; margin-bottom:10px">This token is shown once — store it somewhere safe.</p>
@@ -737,7 +747,22 @@ async function loadAdminOrg() {
       const fim = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/fim`);
       $("fimPaths").value = (fim.paths ?? []).join("\n");
     } catch {}
+    loadAudit();
   } catch (e) { oops(e); }
+}
+
+async function loadAudit() {
+  try {
+    const entries = await getJSON("/api/v1/audit?limit=200");
+    $("auditNow").textContent = `${entries.length} most recent`;
+    $("auditRows").innerHTML = entries.map(e =>
+      `<tr><td style="white-space:nowrap">${new Date(e.timestamp).toLocaleString()}</td>
+       <td>${esc(e.actor)}</td><td><span class="chip type">${esc(e.action)}</span></td>
+       <td>${esc(e.target || "")}</td></tr>`
+    ).join("") || '<tr><td colspan="4" style="color:var(--dim)">no audit entries yet</td></tr>';
+  } catch (e) {
+    $("auditRows").innerHTML = `<tr><td colspan="4" style="color:var(--dim)">${esc(e.message)}</td></tr>`;
+  }
 }
 
 async function saveFIM() {

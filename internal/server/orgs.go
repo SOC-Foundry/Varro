@@ -5,10 +5,67 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/soc-foundry/varro/internal/model"
 )
+
+// actor identifies who is making an authenticated request, for audit records.
+func (s *Server) actor(r *http.Request) string {
+	if u, ok := s.sessionUser(r); ok {
+		return u.Email
+	}
+	if s.masterAuthorized(r) {
+		return "master-token"
+	}
+	return "unknown"
+}
+
+// audit records an administrative action, best-effort (never fails the request).
+func (s *Server) audit(r *http.Request, action, orgID, target string) {
+	if err := s.store.AppendAudit(r.Context(), s.actor(r), action, orgID, target); err != nil {
+		s.log.Error("audit append failed", "action", action, "error", err)
+	}
+}
+
+// handleAudit returns the audit log, scoped: instance admins see everything,
+// org admins see their orgs' entries.
+func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	var scope []string // nil = all
+	if !s.adminAuthorized(r) {
+		user, ok := s.sessionUser(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		orgs, err := s.store.UserOrgs(r.Context(), user.Email)
+		if err != nil {
+			http.Error(w, "storage error", http.StatusInternalServerError)
+			return
+		}
+		scope = []string{}
+		for _, o := range orgs {
+			if role, _ := s.store.OrgRole(r.Context(), o.ID, user.Email); role == "admin" {
+				scope = append(scope, o.ID)
+			}
+		}
+		if len(scope) == 0 {
+			http.Error(w, "forbidden: not an admin of any org", http.StatusForbidden)
+			return
+		}
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	entries, err := s.store.Audit(r.Context(), scope, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if entries == nil {
+		entries = []model.AuditEntry{}
+	}
+	writeJSON(w, entries)
+}
 
 func randomToken() (string, error) {
 	b := make([]byte, 32)
@@ -107,6 +164,7 @@ func (s *Server) handleOrgUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org auto-join domain set", "org", org.ID, "domain", domain)
+	s.audit(r, "org.set_domain", org.ID, "auto-join domain = "+domain)
 	writeJSON(w, map[string]string{"org_id": org.ID, "auto_join_domain": domain})
 }
 
@@ -165,6 +223,11 @@ func (s *Server) handleUserAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("instance-admin status changed", "email", email, "admin", *req.Admin)
+	verb := "revoked"
+	if *req.Admin {
+		verb = "granted"
+	}
+	s.audit(r, "user.admin", "", verb+" instance-admin for "+email)
 	writeJSON(w, map[string]any{"email": email, "admin": *req.Admin})
 }
 
@@ -184,6 +247,7 @@ func (s *Server) handleOrgDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org deleted", "org", org.ID, "name", org.Name)
+	s.audit(r, "org.delete", "", "deleted org "+org.Name+" ("+org.ID+")")
 	writeJSON(w, map[string]bool{"deleted": true})
 }
 
@@ -283,6 +347,7 @@ func (s *Server) handleOrgCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.log.Info("org created", "org", org.ID, "name", org.Name, "auto_join_domain", domain)
+	s.audit(r, "org.create", org.ID, "created org "+org.Name)
 	writeJSON(w, org)
 }
 
@@ -309,6 +374,7 @@ func (s *Server) handleOrgToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org enrollment token minted", "org", org.ID, "token_name", req.Name)
+	s.audit(r, "token.mint", org.ID, "minted enrollment token "+req.Name)
 	writeJSON(w, map[string]string{"org_id": org.ID, "token": token})
 }
 
@@ -340,6 +406,7 @@ func (s *Server) handleEndpointRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("endpoint removed", "endpoint", r.PathValue("id"))
+	s.audit(r, "endpoint.remove", "", "removed endpoint "+r.PathValue("id"))
 	writeJSON(w, map[string]bool{"removed": true})
 }
 
@@ -374,6 +441,7 @@ func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org member removed", "org", org.ID, "email", email)
+	s.audit(r, "member.remove", org.ID, "removed "+email)
 	writeJSON(w, map[string]bool{"removed": true})
 }
 
@@ -415,6 +483,7 @@ func (s *Server) handleOrgInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org member added", "org", org.ID, "email", email, "role", req.Role)
+	s.audit(r, "member.invite", org.ID, email+" as "+req.Role)
 
 	// Automated invitation email when an SMTP relay is configured.
 	go s.sendMailTo([]string{email},

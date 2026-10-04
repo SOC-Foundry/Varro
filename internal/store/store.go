@@ -130,6 +130,15 @@ CREATE TABLE IF NOT EXISTS inventory (
 	manager     TEXT NOT NULL DEFAULT '',
 	packages    BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+	id     INTEGER PRIMARY KEY,
+	ts     INTEGER NOT NULL,
+	actor  TEXT NOT NULL,
+	action TEXT NOT NULL,
+	org_id TEXT NOT NULL DEFAULT '',
+	target TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log(org_id, id);
 CREATE TABLE IF NOT EXISTS actions (
 	id          INTEGER PRIMARY KEY,
 	endpoint_id TEXT NOT NULL,

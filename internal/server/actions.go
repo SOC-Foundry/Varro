@@ -132,6 +132,7 @@ func (s *Server) handleIssueAction(w http.ResponseWriter, r *http.Request) {
 	s.store.InsertServerEvent(r.Context(), org, id, "action_issued",
 		fmt.Sprintf("%s issued response action: %s", issuer, detail))
 	s.log.Info("response action issued", "endpoint", id, "type", req.Type, "arg", req.Arg, "by", issuer)
+	s.audit(r, "action."+req.Type, org, detail+" on "+id)
 	writeJSON(w, map[string]any{"id": actionID, "status": model.ActionPending})
 }
 

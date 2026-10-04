@@ -103,6 +103,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/edges", s.handleTopologyReset)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/audit", s.handleAudit)
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
 	mux.HandleFunc("POST /api/v1/orgs", s.handleOrgCreate)
 	mux.HandleFunc("PUT /api/v1/orgs/{id}", s.handleOrgUpdate)
@@ -169,6 +170,10 @@ func (s *Server) pruneLoop(ctx context.Context) {
 			}
 			if err := s.store.PruneSessions(ctx); err != nil {
 				s.log.Error("session prune failed", "error", err)
+			}
+			// Keep audit history longer than telemetry — 1 year.
+			if err := s.store.PruneAudit(ctx, 365*24*time.Hour); err != nil {
+				s.log.Error("audit prune failed", "error", err)
 			}
 		}
 	}
@@ -352,6 +357,7 @@ func (s *Server) handleOrgFIM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org FIM watchlist updated", "org", org.ID, "paths", len(paths))
+	s.audit(r, "fim.update", org.ID, fmt.Sprintf("set %d watch path(s)", len(paths)))
 	writeJSON(w, map[string]any{"org_id": org.ID, "paths": paths})
 }
 
@@ -385,6 +391,7 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("agent token revoked", "agent_id", r.PathValue("id"))
+	s.audit(r, "endpoint.revoke", org, "revoked token for "+r.PathValue("id"))
 	writeJSON(w, map[string]bool{"revoked": true})
 }
 

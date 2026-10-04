@@ -182,6 +182,16 @@ type Action struct {
 	DoneAt     *time.Time `json:"done_at,omitempty"`
 }
 
+// AuditEntry is one recorded administrative action.
+type AuditEntry struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	OrgID     string    `json:"org_id,omitempty"`
+	Target    string    `json:"target,omitempty"`
+}
+
 // Vulnerability is one OSV finding against an installed package.
 type Vulnerability struct {
 	ID       string `json:"id"` // OSV/CVE identifier

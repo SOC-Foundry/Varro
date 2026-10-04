@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.17.1"
+var version = "0.18.0"
 
 func main() {
 	agent.Version = version
@@ -59,6 +59,8 @@ func main() {
 		err = cli.Alerts(ctx, os.Args[2:])
 	case "events":
 		err = cli.Events(ctx, os.Args[2:])
+	case "audit":
+		err = cli.Audit(ctx, os.Args[2:])
 	case "revoke":
 		err = cli.Revoke(ctx, os.Args[2:])
 	case "orgs":
@@ -113,6 +115,7 @@ Usage:
   varro top       [endpoint] [--server URL] [--interval 2s]
   varro alerts    [--server URL] [--all] [-n 50]
   varro events    [endpoint] [--server URL] [-n 50]
+  varro audit     [--server URL] [--token ADMIN] [-n 100]
   varro inventory [endpoint] [--server URL] [--grep NAME]
   varro vulns     [endpoint] [--server URL] [--grep NAME]
   varro revoke    <endpoint> [--server URL] [--token TOKEN]

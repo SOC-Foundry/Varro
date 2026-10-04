@@ -76,6 +76,30 @@ func Events(ctx context.Context, args []string) error {
 	return nil
 }
 
+// Audit prints the administrative audit log.
+func Audit(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("audit", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	limit := fs.Int("n", 100, "max entries")
+	fs.Parse(args)
+
+	var entries []model.AuditEntry
+	if err := getJSON(ctx, *base, *token, fmt.Sprintf("/api/v1/audit?limit=%d", *limit), &entries); err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		fmt.Println("no audit entries")
+		return nil
+	}
+	fmt.Printf("%-20s %-26s %-18s %s\n", "WHEN", "ACTOR", "ACTION", "TARGET")
+	for _, e := range entries {
+		fmt.Printf("%-20s %-26s %-18s %s\n",
+			e.Timestamp.Local().Format("2006-01-02 15:04:05"), e.Actor, e.Action, e.Target)
+	}
+	return nil
+}
+
 // Revoke deletes an agent's token so it can no longer ingest (admin action).
 func Revoke(ctx context.Context, args []string) error {
 	name, rest := splitArgs(args)
