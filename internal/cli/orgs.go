@@ -176,6 +176,58 @@ func Inventory(ctx context.Context, args []string) error {
 	return nil
 }
 
+// Vulns shows an endpoint's known-vulnerability findings.
+func Vulns(ctx context.Context, args []string) error {
+	name, rest := splitArgs(args)
+	fs := flag.NewFlagSet("vulns", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	grep := fs.String("grep", "", "only show findings whose package or ID contains this")
+	fs.Parse(rest)
+
+	ep, err := resolveEndpoint(ctx, *base, *token, name)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		Supported bool   `json:"supported"`
+		ScannedAt string `json:"scanned_at"`
+		Count     int    `json:"count"`
+		Vulns     []struct {
+			ID       string `json:"id"`
+			Package  string `json:"package"`
+			Version  string `json:"version"`
+			Severity string `json:"severity"`
+			Summary  string `json:"summary"`
+		} `json:"vulns"`
+	}
+	if err := getJSON(ctx, *base, *token,
+		"/api/v1/endpoints/"+url.PathEscape(ep.ID)+"/vulns", &out); err != nil {
+		return err
+	}
+	if !out.Supported {
+		fmt.Printf("%s: this platform's package manager has no OSV ecosystem coverage\n", ep.Hostname)
+		return nil
+	}
+	fmt.Printf("%s — %d finding(s), scanned %s\n\n", ep.Hostname, out.Count, out.ScannedAt)
+	shown := 0
+	for _, v := range out.Vulns {
+		if *grep != "" && !strings.Contains(v.Package, *grep) && !strings.Contains(v.ID, *grep) {
+			continue
+		}
+		sev := v.Severity
+		if sev == "" {
+			sev = "-"
+		}
+		fmt.Printf("  %-22s %-28s %-10s %s\n", v.ID, v.Package+" "+v.Version, sev, v.Summary)
+		shown++
+	}
+	if *grep != "" {
+		fmt.Printf("\n%d finding(s) matching %q\n", shown, *grep)
+	}
+	return nil
+}
+
 // EndpointRemove deletes a decommissioned endpoint and all of its history
 // (admin). Use revoke instead to cut off a machine but keep its data.
 func EndpointRemove(ctx context.Context, args []string) error {

@@ -51,6 +51,8 @@ type Config struct {
 	Gmail            GmailConfig
 	Version          string
 
+	VulnScan bool // match inventories against OSV.dev
+
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
 	MetricsToken string          // if set, /metrics requires this bearer token
@@ -86,6 +88,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/history", s.handleHistory)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/events", s.handleEndpointEvents)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/inventory", s.handleInventory)
+	mux.HandleFunc("GET /api/v1/endpoints/{id}/vulns", s.handleEndpointVulns)
 	mux.HandleFunc("DELETE /api/v1/endpoints/{id}/token", s.handleRevokeToken)
 	mux.HandleFunc("DELETE /api/v1/endpoints/{id}", s.handleEndpointRemove)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/members/{email}", s.handleOrgRemoveMember)
@@ -128,6 +131,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	go s.pruneLoop(ctx)
 	go s.alertLoop(ctx)
+	if s.cfg.VulnScan {
+		go s.vulnScanLoop(ctx)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -608,6 +614,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeHelp("varro_disk_io_read_bytes_per_second", "Aggregate disk read rate.", "gauge")
 	writeHelp("varro_disk_io_write_bytes_per_second", "Aggregate disk write rate.", "gauge")
 	writeHelp("varro_posture_failures", "Failing CIS-lite posture checks.", "gauge")
+	writeHelp("varro_vulnerabilities", "Known vulnerabilities in installed packages (OSV).", "gauge")
 	writeHelp("varro_pending_updates", "Pending package updates.", "gauge")
 	writeHelp("varro_reboot_required", "1 when a reboot is required to apply updates.", "gauge")
 	writeHelp("varro_failed_services", "Services in a failed state.", "gauge")
@@ -652,6 +659,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(&b, "varro_posture_failures%s %d\n", lbl, fails)
 		fmt.Fprintf(&b, "varro_pending_updates%s %d\n", lbl, snap.Health.PendingUpdates)
+		if n, err := s.store.VulnCount(r.Context(), ep.ID); err == nil {
+			fmt.Fprintf(&b, "varro_vulnerabilities%s %d\n", lbl, n)
+		}
 		fmt.Fprintf(&b, "varro_reboot_required%s %d\n", lbl, reboot)
 		fmt.Fprintf(&b, "varro_failed_services%s %d\n", lbl, len(snap.Health.FailedServices))
 		for _, d := range snap.Disks {

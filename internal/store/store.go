@@ -130,6 +130,24 @@ CREATE TABLE IF NOT EXISTS inventory (
 	manager     TEXT NOT NULL DEFAULT '',
 	packages    BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS vulns (
+	endpoint_id TEXT NOT NULL,
+	pkg         TEXT NOT NULL,
+	version     TEXT NOT NULL,
+	vuln_id     TEXT NOT NULL,
+	PRIMARY KEY (endpoint_id, pkg, vuln_id)
+);
+CREATE TABLE IF NOT EXISTS vuln_details (
+	id         TEXT PRIMARY KEY,
+	severity   TEXT NOT NULL DEFAULT '',
+	summary    TEXT NOT NULL DEFAULT '',
+	fetched_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS vuln_scans (
+	endpoint_id  TEXT PRIMARY KEY,
+	scanned_at   INTEGER NOT NULL,
+	inventory_ts INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS edges (
 	org_id     TEXT NOT NULL,
 	src_id     TEXT NOT NULL,
@@ -372,6 +390,8 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		`DELETE FROM agent_tokens WHERE agent_id = ?`,
 		`DELETE FROM inventory WHERE endpoint_id = ?`,
 		`DELETE FROM edges WHERE src_id = ?1 OR dst_id = ?1`,
+		`DELETE FROM vulns WHERE endpoint_id = ?`,
+		`DELETE FROM vuln_scans WHERE endpoint_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
 			return false, err

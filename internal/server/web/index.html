@@ -150,6 +150,12 @@
       <div class="card"><h3>Memory <span class="now" id="memNow"></span></h3><canvas id="memChart"></canvas></div>
       <div class="card"><h3>Network <span class="now" id="netNow"></span></h3><canvas id="netChart"></canvas></div>
       <div class="card"><h3>Disk I/O <span class="now" id="ioNow"></span></h3><canvas id="ioChart"></canvas></div>
+      <div class="card wide"><h3>Vulnerabilities <span class="now" id="vulnNow"></span></h3>
+        <div style="overflow-x:auto; max-height:260px; overflow-y:auto"><table>
+          <thead><tr><th>ID</th><th>Package</th><th>Severity</th><th>Summary</th></tr></thead>
+          <tbody id="vulnRows"></tbody>
+        </table></div>
+      </div>
       <div class="card wide"><h3>Posture &amp; Health <span class="now" id="healthNow"></span></h3>
         <div style="display:flex; gap:24px; flex-wrap:wrap">
           <div id="posture" style="font-family:var(--mono); font-size:12.5px; min-width:320px"></div>
@@ -417,15 +423,17 @@ async function refreshEndpoints() {
 async function refreshDetail() {
   if (!selected) return;
   try {
-    const [snap, hist, events, alerts] = await Promise.all([
+    const [snap, hist, events, alerts, vulns] = await Promise.all([
       getJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/latest`)),
       getJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/history?minutes=${rangeMin}`)),
       getJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/events?limit=25`)),
       getJSON(orgQ(`/api/v1/alerts?state=firing&limit=50`)),
+      getJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/vulns`)),
     ]);
     renderDetail(snap, hist);
     renderEvents(events);
     renderAlerts(alerts);
+    renderVulns(vulns);
   } catch (e) { console.error(e); }
 }
 
@@ -438,6 +446,22 @@ function renderAlerts(alerts) {
      <b>${esc(a.hostname)}</b>
      <span style="color:var(--dim)">${esc(a.message)} · since ${new Date(a.started_at).toLocaleTimeString()}</span></div>`
   ).join("");
+}
+
+function renderVulns(v) {
+  if (!v.supported) {
+    $("vulnNow").textContent = "not supported for this package ecosystem";
+    $("vulnRows").innerHTML = '<tr><td colspan="4" style="color:var(--dim)">OSV has no coverage for this platform\'s package manager</td></tr>';
+    return;
+  }
+  const sevColor = s => /crit/i.test(s) ? "var(--red)" : /high/i.test(s) ? "var(--red)" : /med|mod/i.test(s) ? "var(--amber)" : "var(--dim)";
+  $("vulnNow").textContent = `${v.count} finding${v.count === 1 ? "" : "s"} · scanned ${new Date(v.scanned_at).toLocaleString()}`;
+  $("vulnRows").innerHTML = (v.vulns ?? []).map(x =>
+    `<tr><td><a style="color:var(--accent)" target="_blank" rel="noopener" href="https://osv.dev/vulnerability/${encodeURIComponent(x.id)}">${esc(x.id)}</a></td>
+     <td>${esc(x.package)} ${esc(x.version)}</td>
+     <td style="color:${sevColor(x.severity || "")}">${esc(x.severity || "–")}</td>
+     <td class="cmd">${esc(x.summary || "")}</td></tr>`
+  ).join("") || '<tr><td colspan="4" style="color:var(--green)">no known vulnerabilities 🎉</td></tr>';
 }
 
 function renderEvents(events) {

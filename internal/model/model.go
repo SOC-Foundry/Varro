@@ -139,7 +139,17 @@ const (
 	EventRebootRequired  = "reboot_required"
 	EventFIMChange       = "fim_change"
 	EventConnNewInternal = "conn_new_internal" // first-seen fleet-internal communication path
+	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
 )
+
+// Vulnerability is one OSV finding against an installed package.
+type Vulnerability struct {
+	ID       string `json:"id"` // OSV/CVE identifier
+	Package  string `json:"package"`
+	Version  string `json:"version"`
+	Severity string `json:"severity,omitempty"` // as reported by the source DB, when available
+	Summary  string `json:"summary,omitempty"`
+}
 
 // TopoNode and TopoEdge describe the fleet communication graph.
 type TopoNode struct {

@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.15.1"
+var version = "0.16.0"
 
 func main() {
 	agent.Version = version
@@ -81,6 +81,8 @@ func main() {
 		err = cli.EndpointRemove(ctx, os.Args[2:])
 	case "inventory":
 		err = cli.Inventory(ctx, os.Args[2:])
+	case "vulns":
+		err = cli.Vulns(ctx, os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("varro", version)
 	case "-h", "--help", "help":
@@ -112,6 +114,7 @@ Usage:
   varro alerts    [--server URL] [--all] [-n 50]
   varro events    [endpoint] [--server URL] [-n 50]
   varro inventory [endpoint] [--server URL] [--grep NAME]
+  varro vulns     [endpoint] [--server URL] [--grep NAME]
   varro revoke    <endpoint> [--server URL] [--token TOKEN]
   varro onboard <org> <admin-email> [--domain d.com]        one-shot customer setup
   varro orgs                              [--token ADMIN]   list orgs
@@ -218,6 +221,8 @@ func runServer(ctx context.Context, args []string) error {
 		"comma-separated emails promoted to instance admin at sign-in (first user is always admin)")
 	metricsToken := fs.String("metrics-token", os.Getenv("VARRO_METRICS_TOKEN"),
 		"if set, /metrics requires this bearer token")
+	vulnScan := fs.Bool("vuln-scan", true,
+		"match package inventories against OSV.dev for known vulnerabilities")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
 		"push the desired agent version so agents self-upgrade from GitHub releases")
 	desiredVersion := fs.String("agent-desired-version", "",
@@ -288,6 +293,7 @@ func runServer(ctx context.Context, args []string) error {
 		},
 		AdminEmails:  admins,
 		MetricsToken: *metricsToken,
+		VulnScan:     *vulnScan,
 		AgentDesiredVersion: func() string {
 			if !*autoUpgrade {
 				return ""
