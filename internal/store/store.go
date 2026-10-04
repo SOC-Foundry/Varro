@@ -130,6 +130,17 @@ CREATE TABLE IF NOT EXISTS inventory (
 	manager     TEXT NOT NULL DEFAULT '',
 	packages    BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS edges (
+	org_id     TEXT NOT NULL,
+	src_id     TEXT NOT NULL,
+	dst_id     TEXT NOT NULL,
+	process    TEXT NOT NULL,
+	dst_port   INTEGER NOT NULL,
+	first_seen INTEGER NOT NULL,
+	last_seen  INTEGER NOT NULL,
+	PRIMARY KEY (src_id, dst_id, process, dst_port)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
 `)
 	if err != nil {
 		return err
@@ -360,6 +371,7 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		`DELETE FROM alerts WHERE endpoint_id = ?`,
 		`DELETE FROM agent_tokens WHERE agent_id = ?`,
 		`DELETE FROM inventory WHERE endpoint_id = ?`,
+		`DELETE FROM edges WHERE src_id = ?1 OR dst_id = ?1`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
 			return false, err
@@ -447,11 +459,93 @@ func (s *Store) Prune(ctx context.Context, retention time.Duration) (int64, erro
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < ?`, cutoff); err != nil {
 		return 0, err
 	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, cutoff); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, cutoff)
 	if err != nil {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// ---- topology edges ----
+
+// UpsertEdge records one observed fleet-internal communication path and
+// reports whether it was seen for the first time.
+func (s *Store) UpsertEdge(ctx context.Context, orgID, srcID, dstID, process string, port int, ts int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+INSERT INTO edges (org_id, src_id, dst_id, process, dst_port, first_seen, last_seen)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(src_id, dst_id, process, dst_port) DO UPDATE SET
+	last_seen = MAX(edges.last_seen, excluded.last_seen), org_id = excluded.org_id`,
+		orgID, srcID, dstID, process, port, ts, ts)
+	if err != nil {
+		return false, err
+	}
+	// SQLite reports 1 affected row for both insert and update; detect "new"
+	// by whether first_seen == ts after the statement.
+	_ = res
+	var first int64
+	err = s.db.QueryRowContext(ctx,
+		`SELECT first_seen FROM edges WHERE src_id=? AND dst_id=? AND process=? AND dst_port=?`,
+		srcID, dstID, process, port).Scan(&first)
+	return err == nil && first == ts, err
+}
+
+// Edges returns internal edges seen since the given time, scoped to orgs.
+func (s *Store) Edges(ctx context.Context, orgIDs []string, since time.Time) ([]model.TopoEdge, error) {
+	filter, args := orgFilter("org_id", orgIDs)
+	q := `SELECT src_id, dst_id, process, dst_port, MIN(first_seen), MAX(last_seen)
+FROM edges WHERE last_seen >= ?` + filter + `
+GROUP BY src_id, dst_id, process, dst_port ORDER BY src_id, dst_id`
+	rows, err := s.db.QueryContext(ctx, q, append([]any{since.Unix()}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Merge per (src,dst) with the process/port list.
+	merged := map[string]*model.TopoEdge{}
+	var order []string
+	for rows.Next() {
+		var src, dst, process string
+		var port int
+		var first, last int64
+		if err := rows.Scan(&src, &dst, &process, &port, &first, &last); err != nil {
+			return nil, err
+		}
+		key := src + "|" + dst
+		e, ok := merged[key]
+		if !ok {
+			e = &model.TopoEdge{Src: src, Dst: dst, Internal: true,
+				FirstSeen: time.Unix(first, 0).UTC(), LastSeen: time.Unix(last, 0).UTC()}
+			merged[key] = e
+			order = append(order, key)
+		}
+		e.Processes = append(e.Processes, model.EdgeProcess{Process: process, Port: port})
+		e.Count++
+		if t := time.Unix(first, 0).UTC(); t.Before(e.FirstSeen) {
+			e.FirstSeen = t
+		}
+		if t := time.Unix(last, 0).UTC(); t.After(e.LastSeen) {
+			e.LastSeen = t
+		}
+	}
+	out := make([]model.TopoEdge, 0, len(order))
+	for _, k := range order {
+		out = append(out, *merged[k])
+	}
+	return out, rows.Err()
+}
+
+// InsertServerEvent records a server-generated event (e.g. first-seen
+// topology edges, which no single agent can observe).
+func (s *Store) InsertServerEvent(ctx context.Context, orgID, endpointID, typ, message string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO events (endpoint_id, ts, type, message, org_id) VALUES (?, ?, ?, ?, ?)`,
+		endpointID, time.Now().Unix(), typ, message, orgID)
+	return err
 }
 
 // ---- events ----

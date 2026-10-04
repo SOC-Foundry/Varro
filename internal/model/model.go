@@ -138,7 +138,31 @@ const (
 	EventServiceFailed   = "service_failed"
 	EventRebootRequired  = "reboot_required"
 	EventFIMChange       = "fim_change"
+	EventConnNewInternal = "conn_new_internal" // first-seen fleet-internal communication path
 )
+
+// TopoNode and TopoEdge describe the fleet communication graph.
+type TopoNode struct {
+	ID       string `json:"id"`
+	Hostname string `json:"hostname"`
+	Online   bool   `json:"online"`
+}
+
+type EdgeProcess struct {
+	Process string `json:"process"`
+	Port    int    `json:"port"`
+}
+
+type TopoEdge struct {
+	Src       string        `json:"src"`
+	Dst       string        `json:"dst"` // endpoint ID, or "internet"
+	Internal  bool          `json:"internal"`
+	Processes []EdgeProcess `json:"processes"`
+	Count     int           `json:"count"` // external: connection count; internal: process/port pairs
+	FirstSeen time.Time     `json:"first_seen,omitempty"`
+	LastSeen  time.Time     `json:"last_seen,omitempty"`
+	Remotes   []string      `json:"remotes,omitempty"` // external edges: sample remote IPs
+}
 
 type Event struct {
 	Type    string `json:"type"`
@@ -232,9 +256,10 @@ type NetworkMetrics struct {
 }
 
 type InterfaceStats struct {
-	Name        string  `json:"name"`
-	BytesSent   uint64  `json:"bytes_sent"`
-	BytesRecv   uint64  `json:"bytes_recv"`
+	Name        string   `json:"name"`
+	Addrs       []string `json:"addrs,omitempty"` // non-loopback, non-link-local IPs
+	BytesSent   uint64   `json:"bytes_sent"`
+	BytesRecv   uint64   `json:"bytes_recv"`
 	PacketsSent uint64  `json:"packets_sent"`
 	PacketsRecv uint64  `json:"packets_recv"`
 	ErrIn       uint64  `json:"err_in"`

@@ -65,10 +65,11 @@ type Server struct {
 	cfg   Config
 	store *store.Store
 	log   *slog.Logger
+	ips   *ipIndex
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: st, log: log}
+	return &Server{cfg: cfg, store: st, log: log, ips: newIPIndex()}
 }
 
 // Run serves HTTP until the context is cancelled, pruning old samples in the
@@ -88,6 +89,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/members/{email}", s.handleOrgRemoveMember)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
+	mux.HandleFunc("GET /api/v1/topology", s.handleTopology)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
@@ -220,9 +222,13 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, snap := range snaps {
-		if snap != nil && len(snap.Events) > 0 {
+		if snap == nil {
+			continue
+		}
+		if len(snap.Events) > 0 {
 			s.notifyEvents(snap.Hostname, snap.Events)
 		}
+		s.correlateEdges(r, orgID, snap)
 	}
 	writeJSON(w, map[string]int{"accepted": len(snaps)})
 }

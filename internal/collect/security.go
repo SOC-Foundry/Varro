@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,6 +92,10 @@ func (c *Collector) sampleConnections(ctx context.Context, snap *model.Snapshot,
 		switch {
 		case cn.Status == "ESTABLISHED":
 			snap.Security.EstablishedConns++
+			// Machine-local connections are noise for a fleet view.
+			if ip := net.ParseIP(cn.Raddr.IP); ip != nil && ip.IsLoopback() {
+				continue
+			}
 			// Attributed connection table, deduped by (remote, pid), capped.
 			remote := fmt.Sprintf("%s:%d", cn.Raddr.IP, cn.Raddr.Port)
 			key := fmt.Sprintf("%s/%d", remote, cn.Pid)

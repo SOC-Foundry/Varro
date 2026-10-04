@@ -124,6 +124,9 @@
     <select id="orgSelect" style="width:100%; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px"></select>
   </div>
   <div id="endpoints" style="flex:1; overflow-y:auto"></div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="topoLink" style="color:var(--accent); font-size:13px">⇄ Topology</a>
+  </div>
   <div id="adminbar" style="display:none; padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="adminLink" style="color:var(--accent); font-size:13px">⚙ Admin & install agents</a>
   </div>
@@ -184,6 +187,18 @@
         </table></div>
       </div>
     </div>
+  </div>
+
+  <div id="topoView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Topology</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">observed communication, last hour · drag nodes · click an endpoint to open it</span>
+      <a href="#" id="topoBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+    </header>
+    <div class="card" style="padding:6px">
+      <canvas id="topoCanvas" style="width:100%; height:65vh; display:block; touch-action:none"></canvas>
+    </div>
+    <div id="topoLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:8px"></div>
   </div>
 
   <div id="adminView" style="display:none">
@@ -615,6 +630,12 @@ function setupAdmin(me) {
 
 function showAdmin(on) {
   adminMode = on;
+  if (on && topoMode) { // leaving topology for admin
+    clearInterval(topoTimer);
+    cancelAnimationFrame(topoAnim); topoAnim = null;
+    topoMode = false;
+    $("topoView").style.display = "none";
+  }
   $("adminView").style.display = on ? "block" : "none";
   $("detail").style.display = on ? "none" : "block";
   $("installCard").style.display = "none";
@@ -689,6 +710,160 @@ function renderInstall(token) {
   $("dlLinks").innerHTML = ["varro-linux-amd64", "varro-linux-arm64", "varro-darwin-arm64", "varro-darwin-amd64", "varro-windows-amd64.exe", "checksums.txt"]
     .map(a => `<a style="color:var(--accent); margin-right:14px" href="/download/${a}">${a}</a>`).join("");
 }
+
+/* ---- topology view ---- */
+let topoMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
+let dragNode = null;
+
+$("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true); };
+$("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
+
+function showTopo(on) {
+  topoMode = on;
+  $("topoView").style.display = on ? "block" : "none";
+  $("detail").style.display = on || adminMode ? "none" : "block";
+  if (on) {
+    showAdmin(false); topoMode = true; $("topoView").style.display = "block"; $("detail").style.display = "none";
+    loadTopo();
+    topoTimer = setInterval(loadTopo, 15000);
+    if (!topoAnim) tickTopo();
+  } else {
+    clearInterval(topoTimer);
+    cancelAnimationFrame(topoAnim); topoAnim = null;
+    refreshEndpoints();
+  }
+}
+
+async function loadTopo() {
+  try {
+    const t = await getJSON(orgQ("/api/v1/topology?minutes=60"));
+    const prev = new Map(topoNodes.map(n => [n.id, n]));
+    const c = $("topoCanvas");
+    topoNodes = t.nodes.map((n, i) => {
+      const old = prev.get(n.id);
+      return {
+        ...n,
+        x: old ? old.x : c.clientWidth / 2 + Math.cos(i * 2.4) * 120,
+        y: old ? old.y : c.clientHeight / 2 + Math.sin(i * 2.4) * 120,
+        vx: 0, vy: 0, fixed: old ? old.fixed : false,
+      };
+    });
+    topoEdges = t.edges;
+    const internal = t.edges.filter(e => e.internal).length;
+    const external = t.edges.length - internal;
+    $("topoLegend").textContent =
+      `${t.nodes.length} nodes · ${internal} internal path${internal === 1 ? "" : "s"} · ${external} endpoint${external === 1 ? "" : "s"} talking to the internet`;
+  } catch (e) { console.error(e); }
+}
+
+function tickTopo() {
+  const c = $("topoCanvas");
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const byId = new Map(topoNodes.map(n => [n.id, n]));
+  // Physics: repulsion, edge springs, centering.
+  for (const a of topoNodes) {
+    for (const b of topoNodes) {
+      if (a === b) continue;
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d2 = Math.max(dx * dx + dy * dy, 100);
+      const f = 2600 / d2;
+      a.vx += dx / Math.sqrt(d2) * f; a.vy += dy / Math.sqrt(d2) * f;
+    }
+    a.vx += (w / 2 - a.x) * 0.002; a.vy += (h / 2 - a.y) * 0.002;
+  }
+  for (const e of topoEdges) {
+    const a = byId.get(e.src), b = byId.get(e.dst);
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const f = (d - 170) * 0.004;
+    a.vx += dx / d * f; a.vy += dy / d * f;
+    b.vx -= dx / d * f; b.vy -= dy / d * f;
+  }
+  for (const n of topoNodes) {
+    if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
+    n.vx *= 0.82; n.vy *= 0.82;
+    n.x = Math.max(40, Math.min(w - 40, n.x + n.vx));
+    n.y = Math.max(28, Math.min(h - 28, n.y + n.vy));
+  }
+
+  // Edges.
+  ctx.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  for (const e of topoEdges) {
+    const a = byId.get(e.src), b = byId.get(e.dst);
+    if (!a || !b) continue;
+    ctx.strokeStyle = e.internal ? "#3fb950" : "#30363d";
+    ctx.lineWidth = e.internal ? 1.8 : 1;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    // Arrowhead toward dst.
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const tipx = b.x - Math.cos(ang) * 26, tipy = b.y - Math.sin(ang) * 26;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath();
+    ctx.moveTo(tipx, tipy);
+    ctx.lineTo(tipx - Math.cos(ang - 0.45) * 8, tipy - Math.sin(ang - 0.45) * 8);
+    ctx.lineTo(tipx - Math.cos(ang + 0.45) * 8, tipy - Math.sin(ang + 0.45) * 8);
+    ctx.fill();
+    // Label: processes/ports for internal, count for external.
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    ctx.fillStyle = "#8b949e";
+    const label = e.internal
+      ? (e.processes ?? []).slice(0, 2).map(p => `${p.process}:${p.port}`).join(" ")
+      : `${e.count} conns`;
+    ctx.fillText(label, mx + 6, my - 4);
+  }
+
+  // Nodes.
+  for (const n of topoNodes) {
+    const isNet = n.id === "internet";
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, isNet ? 14 : 18, 0, Math.PI * 2);
+    ctx.fillStyle = isNet ? "#21262d" : (n.online ? "#13341e" : "#3d1d1f");
+    ctx.fill();
+    ctx.strokeStyle = isNet ? "#8b949e" : (n.online ? "#3fb950" : "#f85149");
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#e6edf3";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(isNet ? "☁" : n.hostname.slice(0, 16), n.x, n.y + (isNet ? 4 : 32));
+    ctx.textAlign = "left";
+  }
+
+  topoAnim = requestAnimationFrame(tickTopo);
+}
+
+function topoNodeAt(ev) {
+  const rect = $("topoCanvas").getBoundingClientRect();
+  const x = (ev.clientX ?? ev.touches?.[0]?.clientX) - rect.left;
+  const y = (ev.clientY ?? ev.touches?.[0]?.clientY) - rect.top;
+  return topoNodes.find(n => (n.x - x) ** 2 + (n.y - y) ** 2 < 26 * 26);
+}
+$("topoCanvas").addEventListener("pointerdown", ev => {
+  dragNode = topoNodeAt(ev);
+  if (dragNode) { dragNode.fixed = true; $("topoCanvas").setPointerCapture(ev.pointerId); }
+});
+$("topoCanvas").addEventListener("pointermove", ev => {
+  if (!dragNode) return;
+  const rect = $("topoCanvas").getBoundingClientRect();
+  dragNode.x = ev.clientX - rect.left; dragNode.y = ev.clientY - rect.top;
+});
+$("topoCanvas").addEventListener("pointerup", ev => {
+  if (dragNode) {
+    const moved = dragNode;
+    setTimeout(() => { moved.fixed = false; }, 1500);
+  } else {
+    const n = topoNodeAt(ev);
+    if (n && n.id !== "internet") { selected = n.id; showTopo(false); refreshDetail(); }
+  }
+  dragNode = null;
+});
 
 bootstrap();
 window.addEventListener("resize", refreshDetail);

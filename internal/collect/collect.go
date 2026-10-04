@@ -5,8 +5,10 @@ package collect
 import (
 	"context"
 	"fmt"
+	"net"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,7 +183,30 @@ func (c *Collector) sampleDisks(ctx context.Context, snap *model.Snapshot) {
 	}
 }
 
+// isReportableIP filters loopback and link-local addresses out of interface
+// reporting (they can't identify an endpoint fleet-wide).
+func isReportableIP(s string) bool {
+	ip := net.ParseIP(s)
+	return ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+}
+
 func (c *Collector) sampleNetwork(ctx context.Context, now time.Time, snap *model.Snapshot) {
+	// Interface addresses, for fleet-internal connection correlation.
+	addrsByNIC := map[string][]string{}
+	if ifaces, err := gnet.InterfacesWithContext(ctx); err == nil {
+		for _, ifc := range ifaces {
+			for _, a := range ifc.Addrs {
+				addr := a.Addr
+				if i := strings.IndexByte(addr, '/'); i >= 0 {
+					addr = addr[:i]
+				}
+				if isReportableIP(addr) {
+					addrsByNIC[ifc.Name] = append(addrsByNIC[ifc.Name], addr)
+				}
+			}
+		}
+	}
+
 	// Per-interface counters.
 	perNIC, err := gnet.IOCountersWithContext(ctx, true)
 	if err != nil {
@@ -193,6 +218,7 @@ func (c *Collector) sampleNetwork(ctx context.Context, now time.Time, snap *mode
 		}
 		snap.Network.Interfaces = append(snap.Network.Interfaces, model.InterfaceStats{
 			Name:        nic.Name,
+			Addrs:       addrsByNIC[nic.Name],
 			BytesSent:   nic.BytesSent,
 			BytesRecv:   nic.BytesRecv,
 			PacketsSent: nic.PacketsSent,
