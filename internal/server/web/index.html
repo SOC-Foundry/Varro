@@ -229,8 +229,19 @@ async function bootstrap() {
     if (showAll) sel.appendChild(new Option("All orgs", ""));
     for (const o of me.orgs) sel.appendChild(new Option(o.name, o.id));
     if (!showAll) currentOrg = me.orgs[0].id;
+    // Restore the last-used org scope; admins who live in one org shouldn't
+    // have to re-pick it on every page load.
+    const saved = localStorage.getItem("varro_org");
+    if (saved !== null && (saved === "" || me.orgs.some(o => o.id === saved))) {
+      currentOrg = saved;
+    }
     sel.value = currentOrg;
-    sel.onchange = () => { currentOrg = sel.value; selected = null; refreshEndpoints(); };
+    sel.onchange = () => {
+      currentOrg = sel.value;
+      localStorage.setItem("varro_org", currentOrg);
+      selected = null;
+      refreshEndpoints();
+    };
   } else if (me.orgs.length === 1) {
     currentOrg = me.orgs[0].id;
   }
