@@ -15,18 +15,58 @@ type Snapshot struct {
 	Memory       MemoryMetrics   `json:"memory"`
 	Disks        []DiskMetrics   `json:"disks"`
 	Network      NetworkMetrics  `json:"network"`
+	Hardware     HardwareMetrics `json:"hardware"`
 	Processes    []ProcessInfo   `json:"processes"`
 	Security     SecurityMetrics `json:"security"`
+	// Inventory is only present when the package set changed since the last
+	// shipped inventory (or on the agent's first scan).
+	Inventory *Inventory `json:"inventory,omitempty"`
 	// Events are state changes the agent observed since the previous sample
 	// (new process, new listening port, autostart modification, ...).
 	Events []Event `json:"events,omitempty"`
+}
+
+// HardwareMetrics carries sensor readings and device I/O rates.
+type HardwareMetrics struct {
+	Temps  []TempReading `json:"temps,omitempty"`
+	DiskIO []DiskIORate  `json:"disk_io,omitempty"`
+}
+
+type TempReading struct {
+	Sensor  string  `json:"sensor"`
+	Celsius float64 `json:"celsius"`
+	High    float64 `json:"high,omitempty"` // sensor's own warning threshold, 0 if unknown
+}
+
+// DiskIORate is per-device I/O computed from counter deltas between samples.
+type DiskIORate struct {
+	Device    string  `json:"device"`
+	ReadBps   float64 `json:"read_bps"`
+	WriteBps  float64 `json:"write_bps"`
+	ReadIOPS  float64 `json:"read_iops"`
+	WriteIOPS float64 `json:"write_iops"`
+}
+
+// Inventory is the endpoint's installed-software state.
+type Inventory struct {
+	Kernel   string    `json:"kernel"`
+	Manager  string    `json:"manager"` // dpkg, rpm, pacman
+	Packages []Package `json:"packages"`
+}
+
+type Package struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // SecurityMetrics is the security-relevant state of the endpoint.
 type SecurityMetrics struct {
 	ListeningPorts   []ListeningPort `json:"listening_ports"`
 	EstablishedConns int             `json:"established_conns"`
-	Sessions         []SessionInfo   `json:"sessions"`
+	// Connections are established outbound/inbound connections with process
+	// attribution, capped and deduplicated by (remote, pid).
+	Connections []OutboundConn `json:"connections,omitempty"`
+	Sessions    []SessionInfo  `json:"sessions"`
 	// FailedAuths counts failed authentication log lines observed since the
 	// previous sample (best effort; 0 when the auth log is unreadable).
 	FailedAuths int `json:"failed_auths"`
@@ -36,6 +76,14 @@ type ListeningPort struct {
 	Proto   string `json:"proto"`
 	Address string `json:"address"`
 	Port    uint32 `json:"port"`
+	PID     int32  `json:"pid"`
+	Process string `json:"process"`
+}
+
+type OutboundConn struct {
+	Proto   string `json:"proto"`
+	Local   string `json:"local"`
+	Remote  string `json:"remote"`
 	PID     int32  `json:"pid"`
 	Process string `json:"process"`
 }
@@ -55,6 +103,11 @@ const (
 	EventAutostartChange = "autostart_change"
 	EventUserLogin       = "user_login"
 	EventAuthFailures    = "auth_failures"
+	EventIdentityChange  = "identity_change" // passwd/group/sudoers/authorized_keys
+	EventSUIDChange      = "suid_change"
+	EventPkgInstall      = "pkg_install"
+	EventPkgRemove       = "pkg_remove"
+	EventPkgUpgrade      = "pkg_upgrade"
 )
 
 type Event struct {
@@ -149,13 +202,15 @@ type NetworkMetrics struct {
 }
 
 type InterfaceStats struct {
-	Name        string `json:"name"`
-	BytesSent   uint64 `json:"bytes_sent"`
-	BytesRecv   uint64 `json:"bytes_recv"`
-	PacketsSent uint64 `json:"packets_sent"`
-	PacketsRecv uint64 `json:"packets_recv"`
-	ErrIn       uint64 `json:"err_in"`
-	ErrOut      uint64 `json:"err_out"`
+	Name        string  `json:"name"`
+	BytesSent   uint64  `json:"bytes_sent"`
+	BytesRecv   uint64  `json:"bytes_recv"`
+	PacketsSent uint64  `json:"packets_sent"`
+	PacketsRecv uint64  `json:"packets_recv"`
+	ErrIn       uint64  `json:"err_in"`
+	ErrOut      uint64  `json:"err_out"`
+	RxRate      float64 `json:"rx_rate_bps"` // computed from deltas, 0 on first sample
+	TxRate      float64 `json:"tx_rate_bps"`
 }
 
 type ProcessInfo struct {
@@ -216,4 +271,7 @@ type HistoryPoint struct {
 	RxRate     float64 `json:"rx_rate_bps"`
 	TxRate     float64 `json:"tx_rate_bps"`
 	DiskPct    float64 `json:"disk_percent"`
+	MaxTemp    float64 `json:"max_temp_c"`
+	IoReadBps  float64 `json:"io_read_bps"`
+	IoWriteBps float64 `json:"io_write_bps"`
 }

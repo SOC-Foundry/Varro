@@ -123,6 +123,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 	user_id    TEXT NOT NULL REFERENCES users(id),
 	expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS inventory (
+	endpoint_id TEXT PRIMARY KEY,
+	ts          INTEGER NOT NULL,
+	kernel      TEXT NOT NULL DEFAULT '',
+	manager     TEXT NOT NULL DEFAULT '',
+	packages    BLOB NOT NULL
+);
 `)
 	if err != nil {
 		return err
@@ -136,6 +143,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 		`ALTER TABLE agent_tokens ADD COLUMN org_id TEXT NOT NULL DEFAULT 'default'`,
 		`ALTER TABLE alerts ADD COLUMN org_id TEXT NOT NULL DEFAULT 'default'`,
 		`ALTER TABLE events ADD COLUMN org_id TEXT NOT NULL DEFAULT 'default'`,
+		`ALTER TABLE samples ADD COLUMN max_temp REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE samples ADD COLUMN io_read_bps REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE samples ADD COLUMN io_write_bps REAL NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return err
@@ -186,8 +196,8 @@ ON CONFLICT(id) DO UPDATE SET
 	defer upsert.Close()
 
 	insert, err := tx.PrepareContext(ctx, `
-INSERT INTO samples (endpoint_id, ts, cpu_pct, mem_pct, mem_used, rx_rate, tx_rate, disk_pct, swap_pct, payload)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+INSERT INTO samples (endpoint_id, ts, cpu_pct, mem_pct, mem_used, rx_rate, tx_rate, disk_pct, swap_pct, max_temp, io_read_bps, io_write_bps, payload)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -219,10 +229,21 @@ INSERT INTO events (endpoint_id, ts, type, message, org_id) VALUES (?, ?, ?, ?, 
 		if snap.Memory.SwapTotal > 0 {
 			swapPct = float64(snap.Memory.SwapUsed) / float64(snap.Memory.SwapTotal) * 100
 		}
+		var maxTemp float64
+		for _, t := range snap.Hardware.Temps {
+			if t.Celsius > maxTemp {
+				maxTemp = t.Celsius
+			}
+		}
+		var ioRead, ioWrite float64
+		for _, d := range snap.Hardware.DiskIO {
+			ioRead += d.ReadBps
+			ioWrite += d.WriteBps
+		}
 		if _, err := insert.ExecContext(ctx, snap.AgentID, ts,
 			snap.CPU.TotalPercent, snap.Memory.UsedPercent, snap.Memory.Used,
 			snap.Network.RxRate, snap.Network.TxRate, maxDiskPct(snap.Disks),
-			swapPct, payload); err != nil {
+			swapPct, maxTemp, ioRead, ioWrite, payload); err != nil {
 			return fmt.Errorf("insert sample: %w", err)
 		}
 		for _, ev := range snap.Events {
@@ -230,8 +251,42 @@ INSERT INTO events (endpoint_id, ts, type, message, org_id) VALUES (?, ?, ?, ?, 
 				return fmt.Errorf("insert event: %w", err)
 			}
 		}
+		if snap.Inventory != nil {
+			pkgs, err := json.Marshal(snap.Inventory.Packages)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+INSERT INTO inventory (endpoint_id, ts, kernel, manager, packages) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(endpoint_id) DO UPDATE SET ts=excluded.ts, kernel=excluded.kernel,
+	manager=excluded.manager, packages=excluded.packages`,
+				snap.AgentID, ts, snap.Inventory.Kernel, snap.Inventory.Manager, pkgs); err != nil {
+				return fmt.Errorf("upsert inventory: %w", err)
+			}
+		}
 	}
 	return tx.Commit()
+}
+
+// Inventory returns an endpoint's last reported software inventory, or nil.
+func (s *Store) Inventory(ctx context.Context, endpointID string) (*model.Inventory, time.Time, error) {
+	var kernel, manager string
+	var ts int64
+	var pkgs []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT kernel, manager, packages, ts FROM inventory WHERE endpoint_id = ?`,
+		endpointID).Scan(&kernel, &manager, &pkgs, &ts)
+	if err == sql.ErrNoRows {
+		return nil, time.Time{}, nil
+	}
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	inv := &model.Inventory{Kernel: kernel, Manager: manager}
+	if err := json.Unmarshal(pkgs, &inv.Packages); err != nil {
+		return nil, time.Time{}, err
+	}
+	return inv, time.Unix(ts, 0).UTC(), nil
 }
 
 func maxDiskPct(disks []model.DiskMetrics) float64 {
@@ -293,6 +348,7 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		`DELETE FROM events WHERE endpoint_id = ?`,
 		`DELETE FROM alerts WHERE endpoint_id = ?`,
 		`DELETE FROM agent_tokens WHERE agent_id = ?`,
+		`DELETE FROM inventory WHERE endpoint_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
 			return false, err
@@ -347,7 +403,8 @@ func (s *Store) History(ctx context.Context, endpointID string, from, to time.Ti
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT (ts / ?) * ? AS bucket,
-       AVG(cpu_pct), AVG(mem_pct), AVG(mem_used), AVG(rx_rate), AVG(tx_rate), AVG(disk_pct)
+       AVG(cpu_pct), AVG(mem_pct), AVG(mem_used), AVG(rx_rate), AVG(tx_rate), AVG(disk_pct),
+       AVG(max_temp), AVG(io_read_bps), AVG(io_write_bps)
 FROM samples
 WHERE endpoint_id = ? AND ts BETWEEN ? AND ?
 GROUP BY bucket ORDER BY bucket`,
@@ -362,7 +419,8 @@ GROUP BY bucket ORDER BY bucket`,
 		var p model.HistoryPoint
 		var memUsed float64
 		if err := rows.Scan(&p.Timestamp, &p.CPUPercent, &p.MemPercent, &memUsed,
-			&p.RxRate, &p.TxRate, &p.DiskPct); err != nil {
+			&p.RxRate, &p.TxRate, &p.DiskPct,
+			&p.MaxTemp, &p.IoReadBps, &p.IoWriteBps); err != nil {
 			return nil, err
 		}
 		p.MemUsed = uint64(memUsed)
@@ -504,12 +562,15 @@ FROM alerts WHERE 1=1` + filter
 // is interpolated into SQL so it must never come from untrusted input
 // directly.
 var metricColumns = map[string]string{
-	"cpu_pct":  "cpu_pct",
-	"mem_pct":  "mem_pct",
-	"disk_pct": "disk_pct",
-	"swap_pct": "swap_pct",
-	"rx_rate":  "rx_rate",
-	"tx_rate":  "tx_rate",
+	"cpu_pct":      "cpu_pct",
+	"mem_pct":      "mem_pct",
+	"disk_pct":     "disk_pct",
+	"swap_pct":     "swap_pct",
+	"rx_rate":      "rx_rate",
+	"tx_rate":      "tx_rate",
+	"max_temp_c":   "max_temp",
+	"io_read_bps":  "io_read_bps",
+	"io_write_bps": "io_write_bps",
 }
 
 // WindowAvg returns the average of a metric over the trailing window and the

@@ -20,6 +20,7 @@ var DefaultRules = []model.AlertRule{
 	{Name: "high-memory", Metric: "mem_pct", Op: ">", Threshold: 95, ForSeconds: 300},
 	{Name: "high-swap", Metric: "swap_pct", Op: ">", Threshold: 80, ForSeconds: 300},
 	{Name: "disk-almost-full", Metric: "disk_pct", Op: ">", Threshold: 85, ForSeconds: 60},
+	{Name: "overheating", Metric: "max_temp_c", Op: ">", Threshold: 90, ForSeconds: 120},
 	{Name: "offline", Metric: "offline", ForSeconds: 90},
 }
 

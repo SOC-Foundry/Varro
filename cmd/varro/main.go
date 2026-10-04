@@ -29,7 +29,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.5.0"
+var version = "0.6.0"
 
 func main() {
 	agent.Version = version
@@ -72,6 +72,8 @@ func main() {
 		err = cli.OrgRemoveMember(ctx, os.Args[2:])
 	case "endpoint-remove":
 		err = cli.EndpointRemove(ctx, os.Args[2:])
+	case "inventory":
+		err = cli.Inventory(ctx, os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("varro", version)
 	case "-h", "--help", "help":
@@ -102,6 +104,7 @@ Usage:
   varro top       [endpoint] [--server URL] [--interval 2s]
   varro alerts    [--server URL] [--all] [-n 50]
   varro events    [endpoint] [--server URL] [-n 50]
+  varro inventory [endpoint] [--server URL] [--grep NAME]
   varro revoke    <endpoint> [--server URL] [--token TOKEN]
   varro orgs                              [--token ADMIN]   list orgs
   varro org-create <name>                 [--token ADMIN]   create an org

@@ -98,15 +98,28 @@
       <div class="card wide" id="alertsCard" style="display:none"><h3>Alerts</h3><div id="alerts"></div></div>
       <div class="card"><h3>CPU <span class="now" id="cpuNow"></span></h3><canvas id="cpuChart"></canvas></div>
       <div class="card"><h3>Memory <span class="now" id="memNow"></span></h3><canvas id="memChart"></canvas></div>
-      <div class="card wide"><h3>Network <span class="now" id="netNow"></span></h3><canvas id="netChart"></canvas></div>
+      <div class="card"><h3>Network <span class="now" id="netNow"></span></h3><canvas id="netChart"></canvas></div>
+      <div class="card"><h3>Disk I/O <span class="now" id="ioNow"></span></h3><canvas id="ioChart"></canvas></div>
+      <div class="card wide"><h3>Hardware <span class="now" id="hwNow"></span></h3>
+        <div style="display:flex; gap:24px; flex-wrap:wrap">
+          <div id="temps" style="font-family:var(--mono);font-size:12px;color:var(--dim);min-width:220px"></div>
+          <div id="iodevs" style="font-family:var(--mono);font-size:12px;color:var(--dim);flex:1"></div>
+        </div>
+      </div>
       <div class="card"><h3>Disks</h3><div id="disks"></div></div>
       <div class="card"><h3>System</h3><div id="sysinfo" style="font-family:var(--mono);font-size:12.5px;color:var(--dim)"></div></div>
       <div class="card"><h3>Security <span class="now" id="secNow"></span></h3>
-        <div style="overflow-x:auto;max-height:220px;overflow-y:auto"><table>
+        <div style="overflow-x:auto;max-height:180px;overflow-y:auto"><table>
           <thead><tr><th>Proto</th><th class="num">Port</th><th>Address</th><th>Process</th></tr></thead>
           <tbody id="ports"></tbody>
         </table></div>
         <div id="sessions" style="font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:8px"></div>
+      </div>
+      <div class="card"><h3>Connections <span class="now" id="connNow"></span></h3>
+        <div style="overflow-x:auto;max-height:240px;overflow-y:auto"><table>
+          <thead><tr><th>Process</th><th>Remote</th><th class="num">PID</th></tr></thead>
+          <tbody id="conns"></tbody>
+        </table></div>
       </div>
       <div class="card"><h3>Events</h3>
         <div id="events" style="font-family:var(--mono);font-size:12px;max-height:280px;overflow-y:auto"></div>
@@ -300,6 +313,30 @@ function renderDetail(snap, hist) {
     { color: "#3fb950", fill: true, data: hist.map(p => ({t: p.ts, v: p.rx_rate_bps})) },
     { color: "#d29922", fill: true, data: hist.map(p => ({t: p.ts, v: p.tx_rate_bps})) },
   ], { fmt: v => fmtBytes(v, "") });
+  drawChart($("ioChart"), [
+    { color: "#58a6ff", fill: true, data: hist.map(p => ({t: p.ts, v: p.io_read_bps})) },
+    { color: "#f85149", fill: true, data: hist.map(p => ({t: p.ts, v: p.io_write_bps})) },
+  ], { fmt: v => fmtBytes(v, "") });
+
+  const hw = snap.hardware ?? {};
+  const maxT = Math.max(0, ...(hw.temps ?? []).map(t => t.celsius));
+  const ior = (hw.disk_io ?? []).reduce((a, d) => a + d.read_bps, 0);
+  const iow = (hw.disk_io ?? []).reduce((a, d) => a + d.write_bps, 0);
+  $("ioNow").textContent = `R ${fmtBytes(ior, "B/s")}  W ${fmtBytes(iow, "B/s")}`;
+  $("hwNow").textContent = maxT ? `hottest ${maxT.toFixed(0)}°C` : "";
+  $("temps").innerHTML = (hw.temps ?? []).slice(0, 10).map(t => {
+    const col = t.celsius > 85 ? "var(--red)" : t.celsius > 70 ? "var(--amber)" : "var(--text)";
+    return `<div><span style="display:inline-block;width:160px">${esc(t.sensor)}</span><span style="color:${col}">${t.celsius.toFixed(1)}°C</span></div>`;
+  }).join("") || "no temperature sensors";
+  $("iodevs").innerHTML = (hw.disk_io ?? []).map(d =>
+    `<div><span style="display:inline-block;width:110px;color:var(--text)">${esc(d.device)}</span>R ${fmtBytes(d.read_bps, "B/s")} · W ${fmtBytes(d.write_bps, "B/s")} · ${(d.read_iops + d.write_iops).toFixed(0)} IOPS</div>`
+  ).join("") || "no disk activity data yet";
+
+  const conns = snap.security?.connections ?? [];
+  $("connNow").textContent = `${snap.security?.established_conns ?? 0} established`;
+  $("conns").innerHTML = conns.map(cn =>
+    `<tr><td>${esc(cn.process || "–")}</td><td>${esc(cn.remote)}</td><td class="num">${cn.pid}</td></tr>`
+  ).join("") || '<tr><td colspan="3" style="color:var(--dim)">none visible</td></tr>';
 
   $("disks").innerHTML = (snap.disks ?? []).map(d => {
     const cls = d.used_percent > 90 ? "crit" : d.used_percent > 75 ? "warn" : "";

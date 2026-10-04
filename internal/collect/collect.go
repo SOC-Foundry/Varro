@@ -33,12 +33,22 @@ type Collector struct {
 	prevNetTime time.Time
 	prevRx      uint64
 	prevTx      uint64
+	prevNICs2   map[string][2]uint64 // per-interface [rx, tx] counters
+
+	prevDiskIO map[string]diskIOPrev
+	prevIOTime time.Time
 
 	prevProcs     map[int32]string  // pid -> name
 	prevNICs      map[string]bool   // interface names
 	prevPorts     map[string]bool   // proto:addr:port
 	prevSessions  map[string]bool   // user@terminal
 	prevAutostart map[string]string // path -> size:mtime fingerprint
+	prevIdentity  map[string]string // identity files (passwd/sudoers/ssh keys)
+	suidSet       map[string]bool   // setuid binaries in common bin dirs
+	lastSUIDScan  time.Time
+	prevPackages  map[string]string // package name -> version
+	lastInvScan   time.Time
+	pendingInv    *model.Inventory // set on change, cleared once delivered
 	authLogPath   string
 	authLogOffset int64
 }
@@ -95,8 +105,11 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.sampleMemory(ctx, snap)
 	c.sampleDisks(ctx, snap)
 	c.sampleNetwork(ctx, now, snap)
+	c.sampleHardware(ctx, now, snap)
 	pidNames := c.sampleProcesses(ctx, snap)
 	c.sampleSecurity(ctx, snap, pidNames)
+	c.sampleInventory(ctx, now, snap)
+	snap.Inventory = c.pendingInv
 
 	return snap, nil
 }
@@ -176,18 +189,29 @@ func (c *Collector) sampleNetwork(ctx context.Context, now time.Time, snap *mode
 		})
 	}
 
-	// New-interface events (a NIC appearing on a server is worth noticing).
+	// New-interface events (a NIC appearing on a server is worth noticing),
+	// plus per-interface rates from counter deltas.
 	nics := map[string]bool{}
-	for _, s := range snap.Network.Interfaces {
+	nicCounters := map[string][2]uint64{}
+	dt := now.Sub(c.prevNetTime).Seconds()
+	for i := range snap.Network.Interfaces {
+		s := &snap.Network.Interfaces[i]
 		nics[s.Name] = true
+		nicCounters[s.Name] = [2]uint64{s.BytesRecv, s.BytesSent}
 		if c.prevNICs != nil && !c.prevNICs[s.Name] {
 			snap.Events = append(snap.Events, model.Event{
 				Type:    model.EventNICNew,
 				Message: "new network interface: " + s.Name,
 			})
 		}
+		if prev, ok := c.prevNICs2[s.Name]; ok && dt > 0 &&
+			s.BytesRecv >= prev[0] && s.BytesSent >= prev[1] {
+			s.RxRate = float64(s.BytesRecv-prev[0]) / dt
+			s.TxRate = float64(s.BytesSent-prev[1]) / dt
+		}
 	}
 	c.prevNICs = nics
+	c.prevNICs2 = nicCounters
 
 	// Whole-host rates from counter deltas.
 	var rx, tx uint64
@@ -254,6 +278,9 @@ func (c *Collector) sampleProcesses(ctx context.Context, snap *model.Snapshot) m
 				msg := fmt.Sprintf("new process %s (pid %d", name, p.Pid)
 				if info.Username != "" {
 					msg += ", user " + info.Username
+				}
+				if hash := hashProcessBinary(p.Pid); hash != "" {
+					msg += ", sha256 " + hash
 				}
 				msg += "): " + info.Cmdline
 				snap.Events = append(snap.Events, model.Event{Type: model.EventProcessNew, Message: msg})

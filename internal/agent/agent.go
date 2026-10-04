@@ -264,6 +264,7 @@ func (a *Agent) ship(ctx context.Context) error {
 	}
 	a.buffer = a.buffer[:0]
 	os.Remove(a.spoolPath())
+	a.collector.InventoryDelivered()
 	return nil
 }
 

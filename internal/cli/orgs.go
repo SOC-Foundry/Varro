@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/soc-foundry/varro/internal/model"
 )
@@ -69,6 +70,49 @@ func OrgToken(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("enrollment token for org %s (shown once, store it safely):\n\n  %s\n\n", out.OrgID, out.Token)
 	fmt.Printf("agents join with:\n  varro agent --server %s --token %s\n", *base, out.Token)
+	return nil
+}
+
+// Inventory shows an endpoint's installed software.
+func Inventory(ctx context.Context, args []string) error {
+	name, rest := splitArgs(args)
+	fs := flag.NewFlagSet("inventory", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	grep := fs.String("grep", "", "only show packages whose name contains this")
+	fs.Parse(rest)
+
+	ep, err := resolveEndpoint(ctx, *base, *token, name)
+	if err != nil {
+		return err
+	}
+	var inv struct {
+		CollectedAt  string `json:"collected_at"`
+		Kernel       string `json:"kernel"`
+		Manager      string `json:"manager"`
+		PackageCount int    `json:"package_count"`
+		Packages     []struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"packages"`
+	}
+	if err := getJSON(ctx, *base, *token,
+		"/api/v1/endpoints/"+url.PathEscape(ep.ID)+"/inventory", &inv); err != nil {
+		return err
+	}
+	fmt.Printf("%s — kernel %s, %d packages (%s), collected %s\n\n",
+		ep.Hostname, inv.Kernel, inv.PackageCount, inv.Manager, inv.CollectedAt)
+	shown := 0
+	for _, p := range inv.Packages {
+		if *grep != "" && !strings.Contains(p.Name, *grep) {
+			continue
+		}
+		fmt.Printf("  %-40s %s\n", p.Name, p.Version)
+		shown++
+	}
+	if *grep != "" {
+		fmt.Printf("\n%d package(s) matching %q\n", shown, *grep)
+	}
 	return nil
 }
 

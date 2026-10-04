@@ -76,6 +76,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/latest", s.handleLatest)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/history", s.handleHistory)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/events", s.handleEndpointEvents)
+	mux.HandleFunc("GET /api/v1/endpoints/{id}/inventory", s.handleInventory)
 	mux.HandleFunc("DELETE /api/v1/endpoints/{id}/token", s.handleRevokeToken)
 	mux.HandleFunc("DELETE /api/v1/endpoints/{id}", s.handleEndpointRemove)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/members/{email}", s.handleOrgRemoveMember)
@@ -296,6 +297,33 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"revoked": true})
 }
 
+func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	id, ok := s.endpointInScope(w, r, scope)
+	if !ok {
+		return
+	}
+	inv, ts, err := s.store.Inventory(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if inv == nil {
+		http.Error(w, "no inventory reported yet", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"collected_at": ts,
+		"kernel":       inv.Kernel,
+		"manager":      inv.Manager,
+		"package_count": len(inv.Packages),
+		"packages":     inv.Packages,
+	})
+}
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.requireReadScope(w, r)
 	if !ok {
@@ -485,6 +513,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeHelp("varro_disk_used_percent", "Filesystem usage percent per mountpoint.", "gauge")
 	writeHelp("varro_load1", "1-minute load average.", "gauge")
 	writeHelp("varro_processes_total", "Number of processes on the endpoint.", "gauge")
+	writeHelp("varro_max_temp_celsius", "Hottest sensor reading.", "gauge")
+	writeHelp("varro_disk_io_read_bytes_per_second", "Aggregate disk read rate.", "gauge")
+	writeHelp("varro_disk_io_write_bytes_per_second", "Aggregate disk write rate.", "gauge")
 
 	for _, ep := range eps {
 		snap, err := s.store.Latest(r.Context(), ep.ID)
@@ -499,6 +530,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "varro_network_transmit_bytes_per_second%s %.2f\n", lbl, snap.Network.TxRate)
 		fmt.Fprintf(&b, "varro_load1%s %.2f\n", lbl, snap.CPU.Load1)
 		fmt.Fprintf(&b, "varro_processes_total%s %d\n", lbl, snap.Host.NumProcs)
+		var maxTemp, ioR, ioW float64
+		for _, t := range snap.Hardware.Temps {
+			if t.Celsius > maxTemp {
+				maxTemp = t.Celsius
+			}
+		}
+		for _, d := range snap.Hardware.DiskIO {
+			ioR += d.ReadBps
+			ioW += d.WriteBps
+		}
+		if maxTemp > 0 {
+			fmt.Fprintf(&b, "varro_max_temp_celsius%s %.1f\n", lbl, maxTemp)
+		}
+		fmt.Fprintf(&b, "varro_disk_io_read_bytes_per_second%s %.2f\n", lbl, ioR)
+		fmt.Fprintf(&b, "varro_disk_io_write_bytes_per_second%s %.2f\n", lbl, ioW)
 		for _, d := range snap.Disks {
 			fmt.Fprintf(&b, "varro_disk_used_percent{endpoint=%q,hostname=%q,mountpoint=%q} %.2f\n",
 				ep.ID, ep.Hostname, d.Mountpoint, d.UsedPercent)
