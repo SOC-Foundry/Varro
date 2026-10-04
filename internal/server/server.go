@@ -47,6 +47,7 @@ type Config struct {
 	WebhookURL       string
 	SlackWebhookURL  string
 	SMTP             SMTPConfig
+	CFEmail          CFEmailConfig
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in

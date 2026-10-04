@@ -258,7 +258,7 @@ func (s *Server) notify(state, rule, hostname, message string) {
 	if s.cfg.SlackWebhookURL != "" {
 		go s.postJSON(s.cfg.SlackWebhookURL, map[string]string{"text": text})
 	}
-	if s.cfg.SMTP.Host != "" {
+	if s.mailEnabled() && len(s.cfg.SMTP.To) > 0 {
 		go s.sendMail(text)
 	}
 }
@@ -296,10 +296,18 @@ func (s *Server) sendMail(text string) {
 	s.sendMailTo(s.cfg.SMTP.To, text, text)
 }
 
-// sendMailTo delivers one message via the configured SMTP relay.
+// sendMailTo delivers one message via Cloudflare Email Service when
+// configured, falling back to the SMTP relay.
 func (s *Server) sendMailTo(to []string, subject, body string) {
+	if len(to) == 0 {
+		return
+	}
+	if s.cfEmailEnabled() {
+		s.sendViaCloudflare(to, subject, body)
+		return
+	}
 	c := s.cfg.SMTP
-	if c.Host == "" || len(to) == 0 {
+	if c.Host == "" {
 		return
 	}
 	addr := fmt.Sprintf("%s:%d", c.Host, c.Port)

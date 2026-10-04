@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.10.1"
+var version = "0.11.0"
 
 func main() {
 	agent.Version = version
@@ -194,7 +194,13 @@ func runServer(ctx context.Context, args []string) error {
 	smtpUser := fs.String("smtp-user", "", "SMTP username")
 	smtpPass := fs.String("smtp-pass", os.Getenv("VARRO_SMTP_PASS"), "SMTP password")
 	smtpFrom := fs.String("smtp-from", "", "email From address")
-	smtpTo := fs.String("smtp-to", "", "comma-separated recipient addresses")
+	smtpTo := fs.String("smtp-to", "", "comma-separated alert recipient addresses")
+	cfAccountID := fs.String("cf-email-account-id", os.Getenv("VARRO_CF_ACCOUNT_ID"),
+		"Cloudflare account ID for Email Service sending (preferred over SMTP)")
+	cfEmailToken := fs.String("cf-email-token", os.Getenv("VARRO_CF_EMAIL_TOKEN"),
+		"Cloudflare API token with Email Sending permission")
+	cfEmailFrom := fs.String("cf-email-from", os.Getenv("VARRO_CF_EMAIL_FROM"),
+		"sender address at a domain onboarded to Cloudflare Email Sending")
 	googleClientID := fs.String("google-client-id", os.Getenv("VARRO_GOOGLE_CLIENT_ID"),
 		"Google OAuth client ID; setting this turns on required sign-in")
 	googleClientSecret := fs.String("google-client-secret", os.Getenv("VARRO_GOOGLE_CLIENT_SECRET"),
@@ -257,6 +263,11 @@ func runServer(ctx context.Context, args []string) error {
 			Host: *smtpHost, Port: *smtpPort,
 			User: *smtpUser, Pass: *smtpPass,
 			From: *smtpFrom, To: splitNonEmpty(*smtpTo),
+		},
+		CFEmail: server.CFEmailConfig{
+			AccountID: *cfAccountID,
+			Token:     *cfEmailToken,
+			From:      *cfEmailFrom,
 		},
 		Google: server.GoogleConfig{
 			ClientID:     *googleClientID,
