@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/soc-foundry/varro/internal/model"
 )
 
 // releasePubKeyHex is the ed25519 public key that release checksums must be
@@ -35,10 +37,11 @@ func verifySignature(pubHex string, data, hexSig []byte) bool {
 
 // remoteConfig is what the collector's /api/v1/agent/config returns.
 type remoteConfig struct {
-	IntervalSeconds int      `json:"interval_seconds"`
-	DesiredVersion  string   `json:"desired_version"`
-	Repo            string   `json:"repo"`
-	FIMPaths        []string `json:"fim_paths"`
+	IntervalSeconds int            `json:"interval_seconds"`
+	DesiredVersion  string         `json:"desired_version"`
+	Repo            string         `json:"repo"`
+	FIMPaths        []string       `json:"fim_paths"`
+	Actions         []model.Action `json:"actions"`
 }
 
 // shouldUpgrade reports whether a running agent at `current` should replace

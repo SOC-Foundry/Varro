@@ -142,6 +142,45 @@ const (
 	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
 )
 
+// Response action types. This is an exhaustive allowlist — the agent executes
+// nothing outside it, and in particular never runs an operator-supplied
+// command string.
+const (
+	ActionKillProcess = "kill_process" // Arg = PID
+	ActionIsolate     = "isolate"      // network containment (keeps agent->collector)
+	ActionUnisolate   = "unisolate"    // lift containment
+)
+
+// ValidActionType reports whether t is an allowlisted action.
+func ValidActionType(t string) bool {
+	switch t {
+	case ActionKillProcess, ActionIsolate, ActionUnisolate:
+		return true
+	}
+	return false
+}
+
+// Action statuses.
+const (
+	ActionPending = "pending"
+	ActionSent    = "sent"
+	ActionDone    = "done"
+	ActionFailed  = "failed"
+)
+
+// Action is an operator-issued response command for one endpoint.
+type Action struct {
+	ID         int64      `json:"id"`
+	EndpointID string     `json:"endpoint_id"`
+	Type       string     `json:"type"`
+	Arg        string     `json:"arg,omitempty"`
+	Status     string     `json:"status"`
+	Result     string     `json:"result,omitempty"`
+	IssuedBy   string     `json:"issued_by"`
+	IssuedAt   time.Time  `json:"issued_at"`
+	DoneAt     *time.Time `json:"done_at,omitempty"`
+}
+
 // Vulnerability is one OSV finding against an installed package.
 type Vulnerability struct {
 	ID       string `json:"id"` // OSV/CVE identifier

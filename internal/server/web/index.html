@@ -143,6 +143,11 @@
       <h2 id="hostname"></h2>
       <span class="meta" id="hostmeta"></span>
     </header>
+    <div id="respActions" style="display:none; margin:6px 0 2px; gap:8px; align-items:center">
+      <span style="color:var(--dim); font-size:12px">Response:</span>
+      <button class="abtn danger" id="isolateBtn" onclick="issueAction('isolate')">Isolate host</button>
+      <button class="abtn danger" id="unisolateBtn" onclick="issueAction('unisolate')">Lift isolation</button>
+    </div>
     <div id="ranges"></div>
     <div class="grid">
       <div class="card wide" id="alertsCard" style="display:none"><h3>Alerts</h3><div id="alerts"></div></div>
@@ -188,7 +193,7 @@
       </div>
       <div class="card wide"><h3>Top Processes</h3>
         <div style="overflow-x:auto"><table>
-          <thead><tr><th class="num">PID</th><th>Name</th><th>User</th><th class="num">CPU %</th><th class="num">Mem %</th><th class="num">RSS</th><th>Command</th></tr></thead>
+          <thead><tr><th class="num">PID</th><th>Name</th><th>User</th><th class="num">CPU %</th><th class="num">Mem %</th><th class="num">RSS</th><th>Command</th><th></th></tr></thead>
           <tbody id="procs"></tbody>
         </table></div>
       </div>
@@ -316,6 +321,7 @@ async function bootstrap() {
     sel.onchange = () => {
       currentOrg = sel.value;
       localStorage.setItem("varro_org", currentOrg);
+      if (window._me) updateRespondCapability(window._me);
       selected = null;
       refreshEndpoints();
     };
@@ -324,6 +330,8 @@ async function bootstrap() {
   }
 
   setupAdmin(me);
+  updateRespondCapability(me);
+  me._raw = me; window._me = me; // retain for org-switch recompute
 
   refreshEndpoints();
   // Skip background polling entirely while the tab is hidden; refresh
@@ -508,6 +516,8 @@ function renderDetail(snap, hist) {
     `<div><span style="display:inline-block;width:110px;color:var(--text)">${esc(d.device)}</span>R ${fmtBytes(d.read_bps, "B/s")} · W ${fmtBytes(d.write_bps, "B/s")} · ${(d.read_iops + d.write_iops).toFixed(0)} IOPS</div>`
   ).join("") || "no disk activity data yet";
 
+  $("respActions").style.display = canRespond ? "flex" : "none";
+
   const posture = snap.posture ?? [];
   const health = snap.health ?? {};
   const fails = posture.filter(p => p.status === "fail").length;
@@ -562,7 +572,8 @@ function renderDetail(snap, hist) {
   $("procs").innerHTML = (snap.processes ?? []).map(p =>
     `<tr><td class="num">${p.pid}</td><td>${esc(p.name)}</td><td>${esc(p.username)}</td>
      <td class="num">${p.cpu_percent.toFixed(1)}</td><td class="num">${p.mem_percent.toFixed(1)}</td>
-     <td class="num">${fmtBytes(p.rss)}</td><td class="cmd">${esc(p.cmdline)}</td></tr>`).join("");
+     <td class="num">${fmtBytes(p.rss)}</td><td class="cmd">${esc(p.cmdline)}</td>
+     <td>${canRespond ? `<button class="abtn danger" onclick="killProc(${p.pid}, '${esc(p.name)}')">kill</button>` : ""}</td></tr>`).join("");
 }
 
 /* ---- range buttons + polling ---- */
@@ -579,6 +590,30 @@ for (const [label, mins] of RANGES) {
   };
   rangesBox.appendChild(b);
 }
+
+/* ---- response actions ---- */
+// canRespond is true when the signed-in user can act on the current org
+// (instance admin, org admin, or open/lab mode).
+let canRespond = false;
+
+function updateRespondCapability(me) {
+  if (!me.auth_enabled) { canRespond = true; return; }
+  if (me.user?.admin) { canRespond = true; return; }
+  const org = (me.orgs ?? []).find(o => o.id === currentOrg);
+  canRespond = !!org && org.role === "admin";
+}
+
+async function issueAction(type, arg) {
+  if (!selected) return;
+  const label = type === "kill_process" ? `kill PID ${arg}` :
+                type === "isolate" ? "ISOLATE this host from the network" : "lift isolation";
+  if (!confirm(`Response action: ${label}?\n\nThis acts on the live endpoint.`)) return;
+  try {
+    await postJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/actions`), {type, arg: String(arg ?? "")});
+    alert("Action queued — the agent runs it within one sampling interval. Watch the Events feed for the result.");
+  } catch (e) { oops(e); }
+}
+const killProc = (pid, name) => issueAction("kill_process", pid);
 
 /* ---- admin panel ---- */
 let adminOrgs = [], adminMode = false;

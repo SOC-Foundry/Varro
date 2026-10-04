@@ -133,6 +133,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.writeSpool()
 		}
 
+		// Pending response actions are claimed every sample so containment is
+		// prompt, not gated on the 5-minute config cadence.
+		if actions := a.fetchActions(ctx); len(actions) > 0 {
+			a.runActions(ctx, actions)
+		}
+
 		if time.Since(lastConfigFetch) >= configFetchEvery {
 			lastConfigFetch = time.Now()
 			rc := a.fetchConfig(ctx)

@@ -130,6 +130,18 @@ CREATE TABLE IF NOT EXISTS inventory (
 	manager     TEXT NOT NULL DEFAULT '',
 	packages    BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS actions (
+	id          INTEGER PRIMARY KEY,
+	endpoint_id TEXT NOT NULL,
+	type        TEXT NOT NULL,
+	arg         TEXT NOT NULL DEFAULT '',
+	status      TEXT NOT NULL DEFAULT 'pending',
+	result      TEXT,
+	issued_by   TEXT NOT NULL DEFAULT '',
+	issued_at   INTEGER NOT NULL,
+	done_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_actions_pending ON actions(endpoint_id, status);
 CREATE TABLE IF NOT EXISTS vulns (
 	endpoint_id TEXT NOT NULL,
 	pkg         TEXT NOT NULL,
@@ -392,6 +404,7 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		`DELETE FROM edges WHERE src_id = ?1 OR dst_id = ?1`,
 		`DELETE FROM vulns WHERE endpoint_id = ?`,
 		`DELETE FROM vuln_scans WHERE endpoint_id = ?`,
+		`DELETE FROM actions WHERE endpoint_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
 			return false, err
