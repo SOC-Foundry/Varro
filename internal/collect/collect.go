@@ -53,6 +53,10 @@ type Collector struct {
 	lastInvScan   time.Time
 	pendingInv    *model.Inventory // set on change, cleared once delivered
 
+	prevContainers map[string]bool  // container ids seen last sample
+	cloud          *model.CloudInfo // detected once at first sample
+	cloudChecked   bool
+
 	lastPosture     []model.PostureCheck
 	lastPostureScan time.Time
 	lastHealth      model.HealthStatus
@@ -112,6 +116,13 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 			NumProcs:        info.Procs,
 		}
 	}
+	// Cloud identity is detected once (it doesn't change) and carried on
+	// every snapshot so the server always has it.
+	if !c.cloudChecked {
+		c.cloud = detectCloud(ctx)
+		c.cloudChecked = true
+	}
+	snap.Host.Cloud = c.cloud
 
 	c.sampleCPU(ctx, snap)
 	c.sampleMemory(ctx, snap)
@@ -124,6 +135,7 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.samplePosture(ctx, now, snap)
 	c.sampleHealth(ctx, now, snap)
 	c.sampleFIM(snap)
+	c.sampleContainers(ctx, snap)
 	snap.Inventory = c.pendingInv
 
 	return snap, nil

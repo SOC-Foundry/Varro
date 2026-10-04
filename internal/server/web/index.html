@@ -182,6 +182,12 @@
       </div>
       <div class="card"><h3>Disks</h3><div id="disks"></div></div>
       <div class="card"><h3>System</h3><div id="sysinfo" style="font-family:var(--mono);font-size:12.5px;color:var(--dim)"></div></div>
+      <div class="card wide" id="containerCard" style="display:none"><h3>Containers <span class="now" id="ctrNow"></span></h3>
+        <div style="overflow-x:auto; max-height:240px; overflow-y:auto"><table>
+          <thead><tr><th>Name</th><th>Image</th><th>Pod</th><th>Status</th></tr></thead>
+          <tbody id="ctrRows"></tbody>
+        </table></div>
+      </div>
       <div class="card"><h3>Security <span class="now" id="secNow"></span></h3>
         <div style="overflow-x:auto;max-height:180px;overflow-y:auto"><table>
           <thead><tr><th>Proto</th><th class="num">Port</th><th>Address</th><th>Process</th></tr></thead>
@@ -525,10 +531,19 @@ function renderEvents(events) {
 
 function renderDetail(snap, hist) {
   $("hostname").textContent = snap.hostname;
-  $("hostmeta").textContent =
-    `${snap.host.platform} ${snap.host.platform_version} · ${snap.host.arch} · ` +
+  const cloud = snap.host.cloud;
+  const cloudStr = cloud ? ` · ☁ ${esc(cloud.provider)} ${esc(cloud.region || cloud.zone || "")}` : "";
+  $("hostmeta").innerHTML =
+    `${esc(snap.host.platform)} ${esc(snap.host.platform_version)} · ${esc(snap.host.arch)} · ` +
     `${snap.cpu.cores} cores · up ${fmtUptime(snap.host.uptime_seconds)} · ` +
-    `load ${snap.cpu.load1.toFixed(2)} ${snap.cpu.load5.toFixed(2)} ${snap.cpu.load15.toFixed(2)}`;
+    `load ${snap.cpu.load1.toFixed(2)} ${snap.cpu.load5.toFixed(2)} ${snap.cpu.load15.toFixed(2)}${cloudStr}`;
+
+  const ctrs = snap.containers ?? [];
+  $("containerCard").style.display = ctrs.length ? "block" : "none";
+  $("ctrNow").textContent = ctrs.length ? `${ctrs.length} running` : "";
+  $("ctrRows").innerHTML = ctrs.map(ct =>
+    `<tr><td>${esc(ct.name)}</td><td>${esc(ct.image)}</td><td>${esc(ct.pod ? (ct.namespace + "/" + ct.pod) : "")}</td><td>${esc(ct.status)}</td></tr>`
+  ).join("");
 
   $("cpuNow").textContent = snap.cpu.total_percent.toFixed(1) + " %";
   $("memNow").textContent = `${fmtBytes(snap.memory.used)} / ${fmtBytes(snap.memory.total)} (${snap.memory.used_percent.toFixed(1)} %)`;

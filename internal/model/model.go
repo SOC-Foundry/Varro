@@ -31,6 +31,8 @@ type Snapshot struct {
 	// ProcHashes are SHA-256 digests of newly-seen process binaries this
 	// sample, for server-side malware-hash matching.
 	ProcHashes []ProcHash `json:"proc_hashes,omitempty"`
+	// Containers running on the endpoint (empty when no runtime is present).
+	Containers []ContainerInfo `json:"containers,omitempty"`
 }
 
 // ProcHash is the SHA-256 of a newly-observed process's executable.
@@ -153,6 +155,8 @@ const (
 	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
 	EventThreatMatch     = "threat_match"      // connection to a known-malicious indicator
 	EventMalwareMatch    = "malware_match"     // process binary matched a known-malware hash
+	EventContainerNew    = "container_new"     // container started
+	EventContainerGone   = "container_gone"    // container stopped
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes
@@ -284,14 +288,38 @@ type Alert struct {
 
 // HostInfo describes the endpoint itself; it changes rarely.
 type HostInfo struct {
-	OS              string `json:"os"`
-	Platform        string `json:"platform"`
-	PlatformVersion string `json:"platform_version"`
-	KernelVersion   string `json:"kernel_version"`
-	Arch            string `json:"arch"`
-	Uptime          uint64 `json:"uptime_seconds"`
-	BootTime        int64  `json:"boot_time"`
-	NumProcs        uint64 `json:"num_procs"`
+	OS              string     `json:"os"`
+	Platform        string     `json:"platform"`
+	PlatformVersion string     `json:"platform_version"`
+	KernelVersion   string     `json:"kernel_version"`
+	Arch            string     `json:"arch"`
+	Uptime          uint64     `json:"uptime_seconds"`
+	BootTime        int64      `json:"boot_time"`
+	NumProcs        uint64     `json:"num_procs"`
+	Cloud           *CloudInfo `json:"cloud,omitempty"`
+}
+
+// CloudInfo ties an endpoint to its cloud workload identity.
+type CloudInfo struct {
+	Provider     string `json:"provider"` // gcp, aws, azure
+	AccountID    string `json:"account_id"`
+	Region       string `json:"region"`
+	Zone         string `json:"zone"`
+	InstanceID   string `json:"instance_id"`
+	InstanceType string `json:"instance_type"`
+	Identity     string `json:"identity"` // service account / IAM role
+}
+
+// ContainerInfo is one running container on the endpoint.
+type ContainerInfo struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Image     string  `json:"image"`
+	Status    string  `json:"status"`
+	Pod       string  `json:"pod,omitempty"`
+	Namespace string  `json:"namespace,omitempty"`
+	CPUPct    float64 `json:"cpu_percent,omitempty"`
+	MemBytes  uint64  `json:"mem_bytes,omitempty"`
 }
 
 type CPUMetrics struct {
