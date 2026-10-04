@@ -1,0 +1,34 @@
+name: macos-e2e
+
+# End-to-end test of the macOS agent on a real macOS runner: installs the
+# latest release via the production installer (launchd path) and reports into
+# the CI org for about a minute. Trigger manually; verify/clean up the
+# endpoint with `varro endpoints` / `varro endpoint-remove` afterwards.
+on: workflow_dispatch
+
+jobs:
+  install-and-report:
+    runs-on: macos-latest
+    steps:
+      - name: Install agent via production installer
+        env:
+          VARRO_TOKEN: ${{ secrets.VARRO_CI_ENROLL_TOKEN }}
+        run: |
+          curl -sSL https://varro.socfoundry.com/install.sh -o install.sh
+          sudo VARRO_TOKEN="$VARRO_TOKEN" sh install.sh
+
+      - name: Let it report a few samples
+        run: sleep 45
+
+      - name: Show daemon status and agent log
+        run: |
+          sudo launchctl print system/com.socfoundry.varro-agent | head -15
+          echo "--- agent log ---"
+          sudo tail -20 /var/log/varro-agent.log
+
+      - name: Verify agent process and state
+        run: |
+          pgrep -fl "varro agent"
+          sudo ls -la "/Library/Application Support/Varro"
+          test -s "/Library/Application Support/Varro/agent-token"
+          echo "MACOS_E2E_OK"
