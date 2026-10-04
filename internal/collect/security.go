@@ -10,11 +10,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/host"
 	gnet "github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 
 	"github.com/soc-foundry/varro/internal/model"
 )
@@ -26,8 +28,12 @@ const maxHashableBinary = 256 << 20
 // hashProcessBinary returns the sha256 of a process's executable, or "" when
 // it cannot be read (exited, permission, deleted binary, too large).
 func hashProcessBinary(pid int32) string {
-	path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	p, err := process.NewProcess(pid)
 	if err != nil {
+		return ""
+	}
+	path, err := p.Exe()
+	if err != nil || path == "" {
 		return ""
 	}
 	info, err := os.Stat(path)
@@ -59,27 +65,9 @@ const (
 	suidScanEvery = 5 * time.Minute
 )
 
-// Linux auth logs, tried in order; the first readable one is used.
+// Linux auth logs, tried in order; the first readable one is used. (Absent on
+// other platforms; the auth-log collector then reports nothing.)
 var authLogPaths = []string{"/var/log/auth.log", "/var/log/secure"}
-
-// Filesystem locations where persistence is commonly established. Watched as
-// a flat (path -> size/mtime) fingerprint; any add/modify/remove is an event.
-func autostartRoots() []string {
-	roots := []string{
-		"/etc/systemd/system",
-		"/etc/init.d",
-		"/etc/cron.d",
-		"/etc/cron.daily",
-		"/etc/cron.hourly",
-		"/etc/cron.weekly",
-		"/etc/crontab",
-		"/etc/rc.local",
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		roots = append(roots, filepath.Join(home, ".config", "autostart"))
-	}
-	return roots
-}
 
 // sampleSecurity fills snap.Security and appends diff events. pidNames maps
 // PID to process name from this sample's process scan.
@@ -246,29 +234,6 @@ func (c *Collector) sampleAuthLog(snap *model.Snapshot) {
 	}
 }
 
-// identityPaths are the files that define who can log in and escalate.
-// Changing any of them is one of the highest-signal events an endpoint emits.
-func identityPaths() []string {
-	paths := []string{
-		"/etc/passwd",
-		"/etc/group",
-		"/etc/shadow",
-		"/etc/sudoers",
-		"/root/.ssh/authorized_keys",
-	}
-	if entries, err := os.ReadDir("/etc/sudoers.d"); err == nil {
-		for _, e := range entries {
-			paths = append(paths, filepath.Join("/etc/sudoers.d", e.Name()))
-		}
-	}
-	if homes, err := os.ReadDir("/home"); err == nil {
-		for _, h := range homes {
-			paths = append(paths, filepath.Join("/home", h.Name(), ".ssh", "authorized_keys"))
-		}
-	}
-	return paths
-}
-
 func (c *Collector) sampleIdentityFiles(snap *model.Snapshot) {
 	current := map[string]string{}
 	for _, p := range identityPaths() {
@@ -304,10 +269,13 @@ func (c *Collector) sampleIdentityFiles(snap *model.Snapshot) {
 }
 
 // suidDirs are scanned for setuid binaries; a new one appearing is a classic
-// privilege-escalation persistence trick.
+// privilege-escalation persistence trick. (Empty-result no-op on Windows.)
 var suidDirs = []string{"/usr/bin", "/usr/sbin", "/bin", "/sbin", "/usr/local/bin", "/usr/local/sbin"}
 
 func (c *Collector) sampleSUID(snap *model.Snapshot) {
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if !c.lastSUIDScan.IsZero() && time.Since(c.lastSUIDScan) < suidScanEvery {
 		return
 	}
@@ -365,6 +333,11 @@ func (c *Collector) sampleAutostart(snap *model.Snapshot) {
 			}
 			return nil
 		})
+	}
+	// Platform-specific persistence locations that aren't plain files (e.g.
+	// Windows registry Run keys).
+	for k, v := range platformAutostartExtras() {
+		current[k] = v
 	}
 
 	if c.prevAutostart != nil {

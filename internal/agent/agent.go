@@ -59,6 +59,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create state dir: %w", err)
 	}
+	cleanupOldBinary()
 	legacyID, _ := collect.LegacyHostID(ctx)
 	agentID, err := resolveAgentID(cfg.StateDir, legacyID)
 	if err != nil {

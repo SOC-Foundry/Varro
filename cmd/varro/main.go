@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -29,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.6.0"
+var version = "0.7.0"
 
 func main() {
 	agent.Version = version
@@ -128,6 +129,11 @@ func envOr(key, def string) string {
 }
 
 func defaultStateDir() string {
+	if runtime.GOOS == "windows" {
+		if pd := os.Getenv("ProgramData"); pd != "" {
+			return filepath.Join(pd, "Varro")
+		}
+	}
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "varro")
 	}
@@ -157,6 +163,9 @@ func runAgent(ctx context.Context, args []string) error {
 	}, log)
 	if err != nil {
 		return err
+	}
+	if isWindowsService() {
+		return runAsService(ctx, "varro-agent", a.Run)
 	}
 	return a.Run(ctx)
 }

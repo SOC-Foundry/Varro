@@ -27,6 +27,9 @@ var webFS embed.FS
 //go:embed install.sh
 var installScript string
 
+//go:embed install.ps1
+var installScriptPS string
+
 // maxIngestBody bounds a single ingest request (an agent can batch up to an
 // hour of buffered samples).
 const maxIngestBody = 32 << 20
@@ -92,6 +95,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /install.sh", s.handleInstallScript)
+	mux.HandleFunc("GET /install.ps1", s.handleInstallScriptPS)
 
 	webRoot, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -559,6 +563,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Write([]byte(strings.ReplaceAll(installScript, "__VARRO_SERVER__",
+		strings.TrimSuffix(s.cfg.Google.BaseURL, "/"))))
+}
+
+func (s *Server) handleInstallScriptPS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(strings.ReplaceAll(installScriptPS, "__VARRO_SERVER__",
 		strings.TrimSuffix(s.cfg.Google.BaseURL, "/"))))
 }
 

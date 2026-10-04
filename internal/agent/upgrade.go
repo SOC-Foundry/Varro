@@ -71,9 +71,6 @@ func (a *Agent) maybeUpgrade(ctx context.Context, rc remoteConfig) {
 	if !shouldUpgrade(Version, rc.DesiredVersion) || rc.Repo == "" {
 		return
 	}
-	if runtime.GOOS == "windows" {
-		return // can't replace a running executable on Windows
-	}
 	tag := "v" + strings.TrimPrefix(rc.DesiredVersion, "v")
 	a.log.Info("self-upgrade starting", "from", Version, "to", tag, "repo", rc.Repo)
 	if err := a.selfUpgrade(ctx, rc.Repo, tag); err != nil {
@@ -91,6 +88,9 @@ func (a *Agent) selfUpgrade(ctx context.Context, repo, tag string) error {
 	}
 
 	asset := "varro-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		asset += ".exe"
+	}
 	base := fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, tag)
 	client := &http.Client{Timeout: 5 * time.Minute}
 
@@ -134,13 +134,13 @@ func (a *Agent) selfUpgrade(ctx context.Context, repo, tag string) error {
 		return fmt.Errorf("checksum mismatch for %s", asset)
 	}
 
-	// Write next to the current binary (same filesystem) so the rename is
+	// Write next to the current binary (same filesystem) so the swap is
 	// atomic even while the old binary is executing.
 	tmp := exe + ".new"
 	if err := os.WriteFile(tmp, binary, 0o755); err != nil {
 		return fmt.Errorf("write new binary: %w", err)
 	}
-	if err := os.Rename(tmp, exe); err != nil {
+	if err := swapBinary(exe, tmp); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("swap binary: %w", err)
 	}
@@ -148,5 +148,5 @@ func (a *Agent) selfUpgrade(ctx context.Context, repo, tag string) error {
 	// Nothing buffered may be lost across the restart.
 	a.writeSpool()
 	a.log.Info("self-upgrade complete, restarting", "version", tag)
-	return execSelf(exe)
+	return restartSelf(exe)
 }
