@@ -18,6 +18,10 @@ type Snapshot struct {
 	Hardware     HardwareMetrics `json:"hardware"`
 	Processes    []ProcessInfo   `json:"processes"`
 	Security     SecurityMetrics `json:"security"`
+	// Posture and Health are recomputed every few minutes and carried on
+	// every snapshot in between.
+	Posture []PostureCheck `json:"posture,omitempty"`
+	Health  HealthStatus   `json:"health"`
 	// Inventory is only present when the package set changed since the last
 	// shipped inventory (or on the agent's first scan).
 	Inventory *Inventory `json:"inventory,omitempty"`
@@ -45,6 +49,28 @@ type DiskIORate struct {
 	WriteBps  float64 `json:"write_bps"`
 	ReadIOPS  float64 `json:"read_iops"`
 	WriteIOPS float64 `json:"write_iops"`
+}
+
+// Posture check statuses.
+const (
+	PosturePass = "pass"
+	PostureFail = "fail"
+	PostureNA   = "na" // not applicable / not determinable on this platform
+)
+
+// PostureCheck is one CIS-lite configuration audit result.
+type PostureCheck struct {
+	ID     string `json:"id"`
+	Desc   string `json:"desc"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// HealthStatus is the endpoint's patch/service health.
+type HealthStatus struct {
+	PendingUpdates int      `json:"pending_updates"`
+	RebootRequired bool     `json:"reboot_required"`
+	FailedServices []string `json:"failed_services,omitempty"`
 }
 
 // Inventory is the endpoint's installed-software state.
@@ -108,6 +134,10 @@ const (
 	EventPkgInstall      = "pkg_install"
 	EventPkgRemove       = "pkg_remove"
 	EventPkgUpgrade      = "pkg_upgrade"
+	EventPostureChange   = "posture_change"
+	EventServiceFailed   = "service_failed"
+	EventRebootRequired  = "reboot_required"
+	EventFIMChange       = "fim_change"
 )
 
 type Event struct {

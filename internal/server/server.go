@@ -95,6 +95,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/v1/orgs/{id}", s.handleOrgUpdate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}", s.handleOrgDelete)
 	mux.HandleFunc("PUT /api/v1/users/{email}/admin", s.handleUserAdmin)
+	mux.HandleFunc("PUT /api/v1/orgs/{id}/fim", s.handleOrgFIM)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/fim", s.handleOrgFIMGet)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/tokens", s.handleOrgToken)
 	mux.HandleFunc("GET /api/v1/orgs/{id}/tokens", s.handleOrgTokens)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/members", s.handleOrgInvite)
@@ -278,7 +280,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := s.agentAuthorized(r); !ok {
+	_, orgID, ok := s.agentAuthorized(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -289,7 +292,47 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		resp["desired_version"] = v
 		resp["repo"] = s.cfg.ReleaseRepo
 	}
+	if paths, err := s.store.OrgFIMPaths(r.Context(), orgID); err == nil && len(paths) > 0 {
+		resp["fim_paths"] = paths
+	}
 	writeJSON(w, resp)
+}
+
+// handleOrgFIM sets the org's file-integrity watchlist (org admins and up);
+// agents receive it on their next config poll.
+func (s *Server) handleOrgFIM(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		http.Error(w, "bad request: need {\"paths\": [...]}", http.StatusBadRequest)
+		return
+	}
+	var paths []string
+	for _, p := range req.Paths {
+		if p = strings.TrimSpace(p); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) > 100 {
+		http.Error(w, "too many watch paths (max 100)", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetOrgFIMPaths(r.Context(), org.ID, paths); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("org FIM watchlist updated", "org", org.ID, "paths", len(paths))
+	writeJSON(w, map[string]any{"org_id": org.ID, "paths": paths})
 }
 
 // handleRevokeToken revokes an agent's token. Permitted for admins of the
@@ -555,6 +598,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeHelp("varro_max_temp_celsius", "Hottest sensor reading.", "gauge")
 	writeHelp("varro_disk_io_read_bytes_per_second", "Aggregate disk read rate.", "gauge")
 	writeHelp("varro_disk_io_write_bytes_per_second", "Aggregate disk write rate.", "gauge")
+	writeHelp("varro_posture_failures", "Failing CIS-lite posture checks.", "gauge")
+	writeHelp("varro_pending_updates", "Pending package updates.", "gauge")
+	writeHelp("varro_reboot_required", "1 when a reboot is required to apply updates.", "gauge")
+	writeHelp("varro_failed_services", "Services in a failed state.", "gauge")
 
 	for _, ep := range eps {
 		snap, err := s.store.Latest(r.Context(), ep.ID)
@@ -584,6 +631,20 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(&b, "varro_disk_io_read_bytes_per_second%s %.2f\n", lbl, ioR)
 		fmt.Fprintf(&b, "varro_disk_io_write_bytes_per_second%s %.2f\n", lbl, ioW)
+		fails := 0
+		for _, p := range snap.Posture {
+			if p.Status == "fail" {
+				fails++
+			}
+		}
+		reboot := 0
+		if snap.Health.RebootRequired {
+			reboot = 1
+		}
+		fmt.Fprintf(&b, "varro_posture_failures%s %d\n", lbl, fails)
+		fmt.Fprintf(&b, "varro_pending_updates%s %d\n", lbl, snap.Health.PendingUpdates)
+		fmt.Fprintf(&b, "varro_reboot_required%s %d\n", lbl, reboot)
+		fmt.Fprintf(&b, "varro_failed_services%s %d\n", lbl, len(snap.Health.FailedServices))
 		for _, d := range snap.Disks {
 			fmt.Fprintf(&b, "varro_disk_used_percent{endpoint=%q,hostname=%q,mountpoint=%q} %.2f\n",
 				ep.ID, ep.Hostname, d.Mountpoint, d.UsedPercent)
@@ -599,6 +660,28 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Write([]byte(strings.ReplaceAll(installScript, "__VARRO_SERVER__",
 		strings.TrimSuffix(s.cfg.Google.BaseURL, "/"))))
+}
+
+// handleOrgFIMGet returns the org's watchlist (org admins and up).
+func (s *Server) handleOrgFIMGet(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	paths, err := s.store.OrgFIMPaths(r.Context(), org.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if paths == nil {
+		paths = []string{}
+	}
+	writeJSON(w, map[string]any{"org_id": org.ID, "paths": paths})
 }
 
 // downloadAssets are the release binaries the dashboard offers for download.

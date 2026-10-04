@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -49,6 +50,15 @@ type Collector struct {
 	prevPackages  map[string]string // package name -> version
 	lastInvScan   time.Time
 	pendingInv    *model.Inventory // set on change, cleared once delivered
+
+	lastPosture     []model.PostureCheck
+	lastPostureScan time.Time
+	lastHealth      model.HealthStatus
+	lastHealthScan  time.Time
+
+	fimMu    sync.Mutex
+	fimPaths []string
+	fimState map[string]fimEntry
 	authLogPath   string
 	authLogOffset int64
 }
@@ -109,6 +119,9 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	pidNames := c.sampleProcesses(ctx, snap)
 	c.sampleSecurity(ctx, snap, pidNames)
 	c.sampleInventory(ctx, now, snap)
+	c.samplePosture(ctx, now, snap)
+	c.sampleHealth(ctx, now, snap)
+	c.sampleFIM(snap)
 	snap.Inventory = c.pendingInv
 
 	return snap, nil

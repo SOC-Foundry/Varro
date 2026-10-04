@@ -90,6 +90,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if rc.IntervalSeconds > 0 {
 		a.interval = time.Duration(rc.IntervalSeconds) * time.Second
 	}
+	a.collector.SetFIMPaths(rc.FIMPaths)
 	a.maybeUpgrade(ctx, rc)
 
 	a.log.Info("agent started",
@@ -140,6 +141,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.interval = newInterval
 				ticker.Reset(a.interval)
 			}
+			a.collector.SetFIMPaths(rc.FIMPaths)
 			a.maybeUpgrade(ctx, rc)
 		}
 	}

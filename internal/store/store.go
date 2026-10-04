@@ -147,6 +147,9 @@ CREATE TABLE IF NOT EXISTS inventory (
 		`ALTER TABLE samples ADD COLUMN io_read_bps REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN io_write_bps REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE orgs ADD COLUMN auto_join_domain TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE orgs ADD COLUMN fim_paths TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE samples ADD COLUMN posture_fails INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE samples ADD COLUMN pending_updates INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return err
@@ -197,8 +200,8 @@ ON CONFLICT(id) DO UPDATE SET
 	defer upsert.Close()
 
 	insert, err := tx.PrepareContext(ctx, `
-INSERT INTO samples (endpoint_id, ts, cpu_pct, mem_pct, mem_used, rx_rate, tx_rate, disk_pct, swap_pct, max_temp, io_read_bps, io_write_bps, payload)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+INSERT INTO samples (endpoint_id, ts, cpu_pct, mem_pct, mem_used, rx_rate, tx_rate, disk_pct, swap_pct, max_temp, io_read_bps, io_write_bps, posture_fails, pending_updates, payload)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -241,10 +244,17 @@ INSERT INTO events (endpoint_id, ts, type, message, org_id) VALUES (?, ?, ?, ?, 
 			ioRead += d.ReadBps
 			ioWrite += d.WriteBps
 		}
+		postureFails := 0
+		for _, p := range snap.Posture {
+			if p.Status == "fail" {
+				postureFails++
+			}
+		}
 		if _, err := insert.ExecContext(ctx, snap.AgentID, ts,
 			snap.CPU.TotalPercent, snap.Memory.UsedPercent, snap.Memory.Used,
 			snap.Network.RxRate, snap.Network.TxRate, maxDiskPct(snap.Disks),
-			swapPct, maxTemp, ioRead, ioWrite, payload); err != nil {
+			swapPct, maxTemp, ioRead, ioWrite,
+			postureFails, snap.Health.PendingUpdates, payload); err != nil {
 			return fmt.Errorf("insert sample: %w", err)
 		}
 		for _, ev := range snap.Events {
@@ -569,9 +579,11 @@ var metricColumns = map[string]string{
 	"swap_pct":     "swap_pct",
 	"rx_rate":      "rx_rate",
 	"tx_rate":      "tx_rate",
-	"max_temp_c":   "max_temp",
-	"io_read_bps":  "io_read_bps",
-	"io_write_bps": "io_write_bps",
+	"max_temp_c":      "max_temp",
+	"io_read_bps":     "io_read_bps",
+	"io_write_bps":    "io_write_bps",
+	"posture_fails":   "posture_fails",
+	"pending_updates": "pending_updates",
 }
 
 // WindowAvg returns the average of a metric over the trailing window and the

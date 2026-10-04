@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -107,6 +108,35 @@ func (s *Store) DeleteOrg(ctx context.Context, orgID string) error {
 func (s *Store) SetOrgDomain(ctx context.Context, orgID, domain string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE orgs SET auto_join_domain = ? WHERE id = ?`, domain, orgID)
+	return err
+}
+
+// OrgFIMPaths returns the org's file-integrity watchlist.
+func (s *Store) OrgFIMPaths(ctx context.Context, orgID string) ([]string, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT fim_paths FROM orgs WHERE id = ?`, orgID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(raw), &paths); err != nil {
+		return nil, nil // tolerate legacy/garbage values
+	}
+	return paths, nil
+}
+
+// SetOrgFIMPaths replaces the org's file-integrity watchlist.
+func (s *Store) SetOrgFIMPaths(ctx context.Context, orgID string, paths []string) error {
+	raw, err := json.Marshal(paths)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE orgs SET fim_paths = ? WHERE id = ?`, string(raw), orgID)
 	return err
 }
 
