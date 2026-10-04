@@ -171,6 +171,28 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+// handleTopologyReset clears an org's learned edges (org admins and up); the
+// graph re-learns from live traffic within one sampling interval. First-seen
+// events will re-fire for still-active paths.
+func (s *Server) handleTopologyReset(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	n, err := s.store.DeleteOrgEdges(r.Context(), org.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("topology edges reset", "org", org.ID, "removed", n)
+	writeJSON(w, map[string]any{"org_id": org.ID, "removed": n})
+}
+
 // handleTopology returns the org-scoped communication graph: fleet nodes, an
 // "internet" node, internal edges from the edges table, and per-endpoint
 // external aggregates from the latest snapshots.

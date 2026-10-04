@@ -92,6 +92,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
 	mux.HandleFunc("GET /api/v1/topology", s.handleTopology)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/edges", s.handleTopologyReset)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)

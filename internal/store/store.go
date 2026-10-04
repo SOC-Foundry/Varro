@@ -539,6 +539,17 @@ GROUP BY src_id, dst_id, process, dst_port ORDER BY src_id, dst_id`
 	return out, rows.Err()
 }
 
+// DeleteOrgEdges clears an org's learned topology; it re-learns from live
+// traffic within one sampling interval. Useful after upgrades that change
+// correlation rules.
+func (s *Store) DeleteOrgEdges(ctx context.Context, orgID string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE org_id = ?`, orgID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // InsertServerEvent records a server-generated event (e.g. first-seen
 // topology edges, which no single agent can observe).
 func (s *Store) InsertServerEvent(ctx context.Context, orgID, endpointID, typ, message string) error {
