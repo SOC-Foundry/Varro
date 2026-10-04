@@ -60,7 +60,18 @@ func (s *Server) vulnScanLoop(ctx context.Context) {
 		case <-timer.C:
 		}
 		s.scanAllEndpoints(ctx)
-		s.fetchVulnDetails(ctx)
+		// Drain the details queue in capped batches so fresh findings are
+		// annotated promptly without hammering OSV in one burst.
+		for i := 0; i < 20; i++ {
+			if done := s.fetchVulnDetails(ctx); done {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
 		timer.Reset(vulnCheckEvery)
 	}
 }
@@ -182,11 +193,11 @@ func (s *Server) osvQuery(ctx context.Context, ecosystem string, pkgs []model.Pa
 }
 
 // fetchVulnDetails fills the details cache for newly seen vuln IDs, a capped
-// number per cycle.
-func (s *Server) fetchVulnDetails(ctx context.Context) {
+// number per call; returns true when the queue is empty.
+func (s *Server) fetchVulnDetails(ctx context.Context) bool {
 	ids, err := s.store.UnknownVulnIDs(ctx, detailFetchCap)
 	if err != nil || len(ids) == 0 {
-		return
+		return true
 	}
 	client := &http.Client{Timeout: 20 * time.Second}
 	for _, id := range ids {
@@ -196,7 +207,7 @@ func (s *Server) fetchVulnDetails(ctx context.Context) {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			return // network trouble: try again next cycle
+			return false // network trouble: try again next cycle
 		}
 		var detail struct {
 			Summary  string `json:"summary"`
@@ -231,6 +242,7 @@ func (s *Server) fetchVulnDetails(ctx context.Context) {
 		s.store.SetVulnDetail(ctx, id, severity, summary)
 	}
 	s.log.Info("vulnerability details cached", "count", len(ids))
+	return len(ids) < detailFetchCap
 }
 
 // handleEndpointVulns returns an endpoint's current findings.
