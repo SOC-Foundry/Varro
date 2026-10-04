@@ -18,19 +18,26 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// handleMe tells the dashboard who is signed in and which orgs they can see.
+// handleMe tells the dashboard who is signed in, which orgs they can see, and
+// what they may manage (role "admin" per org, or instance admin everywhere).
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	type orgEntry struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Role string `json:"role"`
+	}
 	type meResponse struct {
 		AuthEnabled bool        `json:"auth_enabled"`
 		User        *model.User `json:"user,omitempty"`
-		Orgs        []model.Org `json:"orgs"`
+		Orgs        []orgEntry  `json:"orgs"`
 	}
-	resp := meResponse{AuthEnabled: s.AuthEnabled(), Orgs: []model.Org{}}
+	resp := meResponse{AuthEnabled: s.AuthEnabled(), Orgs: []orgEntry{}}
 
 	if !s.AuthEnabled() {
-		orgs, err := s.store.Orgs(r.Context())
-		if err == nil {
-			resp.Orgs = orgs
+		if orgs, err := s.store.Orgs(r.Context()); err == nil {
+			for _, o := range orgs {
+				resp.Orgs = append(resp.Orgs, orgEntry{o.ID, o.Name, "member"})
+			}
 		}
 		writeJSON(w, resp)
 		return
@@ -44,12 +51,61 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	resp.User = &user
 	if user.Admin {
 		if orgs, err := s.store.Orgs(r.Context()); err == nil {
-			resp.Orgs = orgs
+			for _, o := range orgs {
+				resp.Orgs = append(resp.Orgs, orgEntry{o.ID, o.Name, "admin"})
+			}
 		}
 	} else if orgs, err := s.store.UserOrgs(r.Context(), user.Email); err == nil {
-		resp.Orgs = orgs
+		for _, o := range orgs {
+			role, _ := s.store.OrgRole(r.Context(), o.ID, user.Email)
+			resp.Orgs = append(resp.Orgs, orgEntry{o.ID, o.Name, role})
+		}
 	}
 	writeJSON(w, resp)
+}
+
+// handleOrgMembers lists an org's membership (org admins and up).
+func (s *Server) handleOrgMembers(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	members, err := s.store.OrgMembers(r.Context(), org.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if members == nil {
+		members = []model.OrgMember{}
+	}
+	writeJSON(w, members)
+}
+
+// handleOrgTokens lists an org's enrollment-token labels (org admins and up).
+func (s *Server) handleOrgTokens(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	tokens, err := s.store.OrgTokenInfos(r.Context(), org.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if tokens == nil {
+		tokens = []model.OrgTokenInfo{}
+	}
+	writeJSON(w, tokens)
 }
 
 // handleOrgsList lists all orgs (admin only).
@@ -92,16 +148,16 @@ func (s *Server) handleOrgCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, org)
 }
 
-// handleOrgToken mints an enrollment token for an org (admin only). The
-// plaintext token is returned once and never stored.
+// handleOrgToken mints an enrollment token for an org (org admins and up).
+// The plaintext token is returned once and never stored.
 func (s *Server) handleOrgToken(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var req struct {
@@ -139,15 +195,15 @@ func (s *Server) handleEndpointRemove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"removed": true})
 }
 
-// handleOrgRemoveMember drops a member from an org (admin only).
+// handleOrgRemoveMember drops a member from an org (org admins and up).
 func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	email := strings.ToLower(r.PathValue("email"))
@@ -164,15 +220,15 @@ func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"removed": true})
 }
 
-// handleOrgInvite adds a member to an org by email (admin only).
+// handleOrgInvite adds a member to an org by email (org admins and up).
 func (s *Server) handleOrgInvite(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var req struct {

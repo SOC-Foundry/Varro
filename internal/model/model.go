@@ -243,6 +243,18 @@ type User struct {
 	Admin bool   `json:"admin"` // instance admin: sees all orgs, manages orgs/tokens
 }
 
+// OrgMember is one row of an org's membership.
+type OrgMember struct {
+	Email string `json:"email"`
+	Role  string `json:"role"` // "member" or "admin" (org admin: manages this org)
+}
+
+// OrgTokenInfo describes an enrollment token without revealing it.
+type OrgTokenInfo struct {
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // EndpointSummary is what the server returns when listing endpoints.
 type EndpointSummary struct {
 	ID           string    `json:"id"`

@@ -287,11 +287,25 @@ func (s *Server) requireReadScope(w http.ResponseWriter, r *http.Request) ([]str
 	return scope, true
 }
 
-// adminAuthorized allows the master token or an admin session.
+// adminAuthorized allows the master token or an instance-admin session.
 func (s *Server) adminAuthorized(r *http.Request) bool {
 	if s.masterAuthorized(r) {
 		return true
 	}
 	user, ok := s.sessionUser(r)
 	return ok && user.Admin
+}
+
+// orgAdminAuthorized allows instance admins plus users holding the "admin"
+// role in the given org — the self-service management boundary for tenants.
+func (s *Server) orgAdminAuthorized(r *http.Request, orgID string) bool {
+	if s.adminAuthorized(r) {
+		return true
+	}
+	user, ok := s.sessionUser(r)
+	if !ok {
+		return false
+	}
+	role, err := s.store.OrgRole(r.Context(), orgID, user.Email)
+	return err == nil && role == "admin"
 }

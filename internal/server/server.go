@@ -89,7 +89,10 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
 	mux.HandleFunc("POST /api/v1/orgs", s.handleOrgCreate)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/tokens", s.handleOrgToken)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/tokens", s.handleOrgTokens)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/members", s.handleOrgInvite)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/members", s.handleOrgMembers)
+	mux.HandleFunc("GET /download/{asset}", s.handleDownload)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
@@ -564,6 +567,30 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Write([]byte(strings.ReplaceAll(installScript, "__VARRO_SERVER__",
 		strings.TrimSuffix(s.cfg.Google.BaseURL, "/"))))
+}
+
+// downloadAssets are the release binaries the dashboard offers for download.
+var downloadAssets = map[string]bool{
+	"varro-linux-amd64":       true,
+	"varro-linux-arm64":       true,
+	"varro-darwin-amd64":      true,
+	"varro-darwin-arm64":      true,
+	"varro-windows-amd64.exe": true,
+	"checksums.txt":           true,
+	"checksums.txt.sig":       true,
+}
+
+// handleDownload redirects to the latest release asset on GitHub, giving the
+// dashboard first-party download URLs.
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	asset := r.PathValue("asset")
+	if !downloadAssets[asset] {
+		http.Error(w, "unknown asset", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r,
+		"https://github.com/"+s.cfg.ReleaseRepo+"/releases/latest/download/"+asset,
+		http.StatusFound)
 }
 
 func (s *Server) handleInstallScriptPS(w http.ResponseWriter, r *http.Request) {

@@ -172,15 +172,16 @@ func OrgInvite(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("org-invite", flag.ExitOnError)
 	base := serverFlag(fs)
 	token := tokenFlag(fs)
+	role := fs.String("role", "member", "member, or admin (manages this org's members and tokens)")
 	fs.Parse(rest)
 	if ref == "" || email == "" {
-		return fmt.Errorf("usage: varro org-invite <org-id-or-name> <email>")
+		return fmt.Errorf("usage: varro org-invite <org-id-or-name> <email> [--role admin]")
 	}
 
 	if err := postJSON(ctx, *base, *token, "/api/v1/orgs/"+url.PathEscape(ref)+"/members",
-		map[string]string{"email": email}, nil); err != nil {
+		map[string]string{"email": email, "role": *role}, nil); err != nil {
 		return err
 	}
-	fmt.Printf("%s invited to org %s — they'll see it on next Google sign-in\n", email, ref)
+	fmt.Printf("%s invited to org %s as %s — they'll see it on next Google sign-in\n", email, ref, *role)
 	return nil
 }

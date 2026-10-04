@@ -152,6 +152,57 @@ ON CONFLICT(org_id, email) DO UPDATE SET role=excluded.role`, orgID, email, role
 	return err
 }
 
+// OrgMembers lists an org's membership.
+func (s *Store) OrgMembers(ctx context.Context, orgID string) ([]model.OrgMember, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT email, role FROM org_members WHERE org_id = ? ORDER BY email`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.OrgMember
+	for rows.Next() {
+		var m model.OrgMember
+		if err := rows.Scan(&m.Email, &m.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// OrgRole returns a user's role in an org ("" when not a member).
+func (s *Store) OrgRole(ctx context.Context, orgID, email string) (string, error) {
+	var role string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT role FROM org_members WHERE org_id = ? AND email = ?`, orgID, email).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return role, err
+}
+
+// OrgTokenInfos lists an org's enrollment tokens (labels only, never values).
+func (s *Store) OrgTokenInfos(ctx context.Context, orgID string) ([]model.OrgTokenInfo, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT name, created_at FROM org_tokens WHERE org_id = ? ORDER BY created_at DESC`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.OrgTokenInfo
+	for rows.Next() {
+		var t model.OrgTokenInfo
+		var created int64
+		if err := rows.Scan(&t.Name, &created); err != nil {
+			return nil, err
+		}
+		t.CreatedAt = time.Unix(created, 0).UTC()
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // RemoveOrgMember drops a member from an org. Returns whether the membership
 // existed.
 func (s *Store) RemoveOrgMember(ctx context.Context, orgID, email string) (bool, error) {

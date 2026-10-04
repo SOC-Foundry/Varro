@@ -60,6 +60,11 @@
   .chip.type { background: #1f2937; color: var(--dim); border: 1px solid var(--border); }
   .evt { padding: 4px 0; border-bottom: 1px solid #1c2128; color: var(--dim); }
   .evt b { color: var(--text); font-weight: 500; }
+  /* admin */
+  .abtn { background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .abtn:hover { background: #388bfd; }
+  .abtn.danger { background: transparent; color: var(--red); border: 1px solid var(--border); padding: 2px 10px; font-size: 12px; }
+  .snippet { background: #0a0d12; border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; user-select: all; }
   /* process table */
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
   th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--border); }
@@ -81,6 +86,9 @@
     <select id="orgSelect" style="width:100%; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px"></select>
   </div>
   <div id="endpoints" style="flex:1; overflow-y:auto"></div>
+  <div id="adminbar" style="display:none; padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="adminLink" style="color:var(--accent); font-size:13px">⚙ Admin & install agents</a>
+  </div>
   <div id="userbar" style="display:none; padding:10px 16px; border-top:1px solid var(--border); font-size:12px; color:var(--dim)">
     <span id="userEmail"></span>
     <a href="#" id="logout" style="color:var(--accent); float:right">sign out</a>
@@ -132,6 +140,52 @@
       </div>
     </div>
   </div>
+
+  <div id="adminView" style="display:none">
+    <header style="margin-bottom:14px">
+      <h2>Administration</h2>
+      <a href="#" id="adminBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+    </header>
+    <div class="grid">
+      <div class="card wide" id="createOrgCard" style="display:none"><h3>Create organization</h3>
+        <div style="display:flex; gap:8px">
+          <input id="newOrgName" placeholder="Organization name" style="flex:1; max-width:320px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px">
+          <button id="createOrgBtn" class="abtn">Create</button>
+        </div>
+      </div>
+      <div class="card wide"><h3>Organization</h3>
+        <select id="adminOrgSelect" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px; min-width:240px"></select>
+      </div>
+      <div class="card"><h3>Members</h3>
+        <table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody id="memberRows"></tbody></table>
+        <div style="display:flex; gap:8px; margin-top:10px">
+          <input id="inviteEmail" placeholder="email@example.com" style="flex:1; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px">
+          <select id="inviteRole" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px">
+            <option value="member">member</option><option value="admin">admin</option>
+          </select>
+          <button id="inviteBtn" class="abtn">Invite</button>
+        </div>
+      </div>
+      <div class="card"><h3>Enrollment tokens</h3>
+        <table><thead><tr><th>Label</th><th>Created</th></tr></thead><tbody id="tokenRows"></tbody></table>
+        <div style="display:flex; gap:8px; margin-top:10px">
+          <input id="tokenLabel" placeholder="label (e.g. hq-servers)" style="flex:1; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px">
+          <button id="mintBtn" class="abtn">Mint install token</button>
+        </div>
+      </div>
+      <div class="card wide" id="installCard" style="display:none"><h3>Install agents with this token</h3>
+        <p style="color:var(--amber); font-size:12.5px; margin-bottom:10px">This token is shown once — store it somewhere safe.</p>
+        <div style="font-family:var(--mono); font-size:12.5px">
+          <div style="color:var(--dim); margin-bottom:2px">Linux (as root):</div>
+          <pre class="snippet" id="snipLinux"></pre>
+          <div style="color:var(--dim); margin:10px 0 2px">Windows (elevated PowerShell):</div>
+          <pre class="snippet" id="snipWin"></pre>
+          <div style="color:var(--dim); margin:10px 0 2px">Direct binary downloads (macOS/manual installs):</div>
+          <div id="dlLinks"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 <script>
 "use strict";
@@ -172,6 +226,8 @@ async function bootstrap() {
   } else if (me.orgs.length === 1) {
     currentOrg = me.orgs[0].id;
   }
+
+  setupAdmin(me);
 
   refreshEndpoints();
   setInterval(refreshEndpoints, 5000);
@@ -258,8 +314,8 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  $("empty").style.display = eps.length ? "none" : "block";
-  $("detail").style.display = eps.length && selected ? "block" : "none";
+  $("empty").style.display = eps.length || adminMode ? "none" : "block";
+  if (!adminMode) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
 
 async function refreshDetail() {
@@ -385,6 +441,113 @@ for (const [label, mins] of RANGES) {
     refreshDetail();
   };
   rangesBox.appendChild(b);
+}
+
+/* ---- admin panel ---- */
+let adminOrgs = [], adminMode = false;
+
+async function postJSON(url, body) {
+  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 ? null : r.json();
+}
+async function del(url) {
+  const r = await fetch(url, {method: "DELETE"});
+  if (!r.ok) throw new Error(await r.text());
+}
+const oops = e => alert("error: " + e.message);
+
+function setupAdmin(me) {
+  adminOrgs = (me.orgs ?? []).filter(o => o.role === "admin");
+  const isInstanceAdmin = !!me.user?.admin;
+  if (!adminOrgs.length && !isInstanceAdmin) return;
+
+  $("adminbar").style.display = "block";
+  $("createOrgCard").style.display = isInstanceAdmin ? "block" : "none";
+  $("adminLink").onclick = e => { e.preventDefault(); showAdmin(true); };
+  $("adminBack").onclick = e => { e.preventDefault(); showAdmin(false); };
+
+  const sel = $("adminOrgSelect");
+  sel.innerHTML = "";
+  for (const o of adminOrgs) sel.appendChild(new Option(o.name, o.id));
+  sel.onchange = () => loadAdminOrg();
+
+  $("createOrgBtn").onclick = async () => {
+    const name = $("newOrgName").value.trim();
+    if (!name) return;
+    try {
+      const org = await postJSON("/api/v1/orgs", {name});
+      adminOrgs.push({id: org.id, name: org.name, role: "admin"});
+      sel.appendChild(new Option(org.name, org.id));
+      sel.value = org.id;
+      $("newOrgName").value = "";
+      loadAdminOrg();
+    } catch (e) { oops(e); }
+  };
+  $("inviteBtn").onclick = async () => {
+    const email = $("inviteEmail").value.trim();
+    if (!email) return;
+    try {
+      await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/members`,
+        {email, role: $("inviteRole").value});
+      $("inviteEmail").value = "";
+      loadAdminOrg();
+    } catch (e) { oops(e); }
+  };
+  $("mintBtn").onclick = async () => {
+    try {
+      const out = await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/tokens`,
+        {name: $("tokenLabel").value.trim()});
+      $("tokenLabel").value = "";
+      renderInstall(out.token);
+      loadAdminOrg();
+    } catch (e) { oops(e); }
+  };
+}
+
+function showAdmin(on) {
+  adminMode = on;
+  $("adminView").style.display = on ? "block" : "none";
+  $("detail").style.display = on ? "none" : "block";
+  $("installCard").style.display = "none";
+  if (on && adminOrgs.length) loadAdminOrg();
+}
+
+async function loadAdminOrg() {
+  const org = $("adminOrgSelect").value;
+  if (!org) return;
+  try {
+    const [members, tokens] = await Promise.all([
+      getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/members`),
+      getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/tokens`),
+    ]);
+    $("memberRows").innerHTML = members.map(m =>
+      `<tr><td>${esc(m.email)}</td><td>${esc(m.role)}</td>
+       <td><button class="abtn danger" onclick="removeMember('${esc(m.email)}')">remove</button></td></tr>`
+    ).join("") || '<tr><td colspan="3" style="color:var(--dim)">no members yet</td></tr>';
+    $("tokenRows").innerHTML = tokens.map(t =>
+      `<tr><td>${esc(t.name || "(unlabeled)")}</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>`
+    ).join("") || '<tr><td colspan="2" style="color:var(--dim)">no tokens minted yet</td></tr>';
+  } catch (e) { oops(e); }
+}
+
+async function removeMember(email) {
+  if (!confirm(`Remove ${email} from this org?`)) return;
+  try {
+    await del(`/api/v1/orgs/${encodeURIComponent($("adminOrgSelect").value)}/members/${encodeURIComponent(email)}`);
+    loadAdminOrg();
+  } catch (e) { oops(e); }
+}
+
+function renderInstall(token) {
+  const base = location.origin;
+  $("installCard").style.display = "block";
+  $("snipLinux").textContent =
+    `curl -sSL ${base}/install.sh | sudo VARRO_TOKEN=${token} sh`;
+  $("snipWin").textContent =
+    `$env:VARRO_TOKEN = "${token}"\niwr -UseBasicParsing ${base}/install.ps1 | iex`;
+  $("dlLinks").innerHTML = ["varro-linux-amd64", "varro-linux-arm64", "varro-darwin-arm64", "varro-darwin-amd64", "varro-windows-amd64.exe", "checksums.txt"]
+    .map(a => `<a style="color:var(--accent); margin-right:14px" href="/download/${a}">${a}</a>`).join("");
 }
 
 bootstrap();
