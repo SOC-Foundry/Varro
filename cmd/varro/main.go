@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.11.1"
+var version = "0.11.2"
 
 func main() {
 	agent.Version = version
@@ -75,6 +75,8 @@ func main() {
 		err = cli.OrgRemoveMember(ctx, os.Args[2:])
 	case "org-delete":
 		err = cli.OrgDelete(ctx, os.Args[2:])
+	case "user-admin":
+		err = cli.UserAdmin(ctx, os.Args[2:])
 	case "endpoint-remove":
 		err = cli.EndpointRemove(ctx, os.Args[2:])
 	case "inventory":
@@ -118,6 +120,7 @@ Usage:
   varro org-invite <org> <email>          [--token ADMIN]   grant a Google user access
   varro org-remove-member <org> <email>   [--token ADMIN]   drop a user from an org
   varro org-delete <org>                  [--token ADMIN]   delete an empty org
+  varro user-admin <email> grant|revoke   [--token ADMIN]   instance-admin status
   varro endpoint-remove <endpoint>        [--token ADMIN]   delete an endpoint + its data
 
 The agent and the query commands default --server to $VARRO_SERVER; tokens

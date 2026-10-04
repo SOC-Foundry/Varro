@@ -293,6 +293,41 @@ JOIN org_members m ON m.org_id = o.id WHERE m.email = ? ORDER BY o.name`, email)
 	return out, rows.Err()
 }
 
+// AdminCount returns how many instance admins exist.
+func (s *Store) AdminCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&n)
+	return n, err
+}
+
+// SetUserAdmin grants or revokes instance-admin status by email. Returns
+// whether the user exists.
+func (s *Store) SetUserAdmin(ctx context.Context, email string, admin bool) (bool, error) {
+	v := 0
+	if admin {
+		v = 1
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET is_admin = ? WHERE email = ?`, v, email)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// UserIsAdmin reports a user's instance-admin status; ok=false if no such
+// user has signed in yet.
+func (s *Store) UserIsAdmin(ctx context.Context, email string) (admin, ok bool, err error) {
+	var v int
+	err = s.db.QueryRowContext(ctx,
+		`SELECT is_admin FROM users WHERE email = ?`, email).Scan(&v)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	return v == 1, true, err
+}
+
 // ---- sessions ----
 
 // CreateSession returns a new session token (plaintext; only its hash is

@@ -110,6 +110,64 @@ func (s *Server) handleOrgUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"org_id": org.ID, "auto_join_domain": domain})
 }
 
+// handleUserAdmin grants or revokes instance-admin status (instance admin
+// only). Demotion is refused for the last remaining admin, for anyone still
+// pinned by --admin-emails (sign-in would silently re-promote them), and for
+// the caller's own session account.
+func (s *Server) handleUserAdmin(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	email := strings.ToLower(r.PathValue("email"))
+	var req struct {
+		Admin *bool `json:"admin"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Admin == nil {
+		http.Error(w, "bad request: need {\"admin\": true|false}", http.StatusBadRequest)
+		return
+	}
+
+	if !*req.Admin {
+		if s.cfg.AdminEmails[email] {
+			http.Error(w, "this email is in --admin-emails; remove it from the server flag first or sign-in will re-promote them", http.StatusConflict)
+			return
+		}
+		if user, ok := s.sessionUser(r); ok && user.Email == email {
+			http.Error(w, "refusing to demote your own account", http.StatusConflict)
+			return
+		}
+		wasAdmin, exists, err := s.store.UserIsAdmin(r.Context(), email)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if exists && wasAdmin {
+			n, err := s.store.AdminCount(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if n <= 1 {
+				http.Error(w, "refusing to demote the last instance admin", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	exists, err := s.store.SetUserAdmin(r.Context(), email, *req.Admin)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "no such user (they must sign in at least once first)", http.StatusNotFound)
+		return
+	}
+	s.log.Info("instance-admin status changed", "email", email, "admin", *req.Admin)
+	writeJSON(w, map[string]any{"email": email, "admin": *req.Admin})
+}
+
 // handleOrgDelete removes an empty org (instance admin only).
 func (s *Server) handleOrgDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.adminAuthorized(r) {

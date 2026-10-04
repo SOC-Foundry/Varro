@@ -199,6 +199,34 @@ func EndpointRemove(ctx context.Context, args []string) error {
 	return nil
 }
 
+// UserAdmin grants or revokes instance-admin status (instance admin).
+func UserAdmin(ctx context.Context, args []string) error {
+	email, rest := splitArgs(args)
+	var action string
+	if len(rest) > 0 && rest[0][0] != '-' {
+		action, rest = rest[0], rest[1:]
+	}
+	fs := flag.NewFlagSet("user-admin", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	if email == "" || (action != "grant" && action != "revoke") {
+		return fmt.Errorf("usage: varro user-admin <email> grant|revoke")
+	}
+
+	if err := putJSON(ctx, *base, *token,
+		"/api/v1/users/"+url.PathEscape(email)+"/admin",
+		map[string]bool{"admin": action == "grant"}, nil); err != nil {
+		return err
+	}
+	if action == "grant" {
+		fmt.Printf("%s is now an instance admin (sees and manages all orgs)\n", email)
+	} else {
+		fmt.Printf("%s is no longer an instance admin — org-level roles still apply\n", email)
+	}
+	return nil
+}
+
 // OrgDelete removes an empty org (instance admin).
 func OrgDelete(ctx context.Context, args []string) error {
 	ref, rest := splitArgs(args)
