@@ -319,8 +319,13 @@ async function bootstrap() {
   setupAdmin(me);
 
   refreshEndpoints();
-  setInterval(refreshEndpoints, 5000);
-  setInterval(refreshDetail, 5000);
+  // Skip background polling entirely while the tab is hidden; refresh
+  // immediately when it becomes visible again.
+  setInterval(() => { if (!document.hidden) refreshEndpoints(); }, 5000);
+  setInterval(() => { if (!document.hidden) refreshDetail(); }, 5000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { refreshEndpoints(); refreshDetail(); if (topoMode) loadTopo(); }
+  });
 }
 
 function showLogin(msg) {
@@ -725,7 +730,8 @@ function showTopo(on) {
   if (on) {
     showAdmin(false); topoMode = true; $("topoView").style.display = "block"; $("detail").style.display = "none";
     loadTopo();
-    topoTimer = setInterval(loadTopo, 15000);
+    clearInterval(topoTimer);
+    topoTimer = setInterval(() => { if (!document.hidden) loadTopo(); }, 15000);
     if (!topoAnim) tickTopo();
   } else {
     clearInterval(topoTimer);
@@ -757,12 +763,21 @@ async function loadTopo() {
 }
 
 function tickTopo() {
+  if (document.hidden) { // don't burn CPU/GPU in a background tab
+    topoAnim = requestAnimationFrame(tickTopo);
+    return;
+  }
   const c = $("topoCanvas");
   const dpr = window.devicePixelRatio || 1;
   const w = c.clientWidth, h = c.clientHeight;
-  c.width = w * dpr; c.height = h * dpr;
+  // Only reallocate the backing buffer when the size actually changed —
+  // reallocating every frame churns GPU memory and gets mobile tabs killed.
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+  }
   const ctx = c.getContext("2d");
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
   const byId = new Map(topoNodes.map(n => [n.id, n]));
