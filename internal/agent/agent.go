@@ -56,13 +56,15 @@ type Agent struct {
 var Version = "dev"
 
 func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
-	c, err := collect.New(ctx, Version)
-	if err != nil {
-		return nil, fmt.Errorf("init collector: %w", err)
-	}
 	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create state dir: %w", err)
 	}
+	legacyID, _ := collect.LegacyHostID(ctx)
+	agentID, err := resolveAgentID(cfg.StateDir, legacyID)
+	if err != nil {
+		return nil, err
+	}
+	c := collect.New(agentID, Version)
 	return &Agent{
 		cfg:       cfg,
 		collector: c,

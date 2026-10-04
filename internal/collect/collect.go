@@ -43,18 +43,25 @@ type Collector struct {
 	authLogOffset int64
 }
 
-// New builds a Collector. The agent ID is the stable host ID when available,
-// falling back to the hostname.
-func New(ctx context.Context, version string) (*Collector, error) {
+// New builds a Collector reporting as the given agent ID (see the agent
+// package for how identity is derived and persisted).
+func New(agentID, version string) *Collector {
+	return &Collector{agentID: agentID, version: version}
+}
+
+// LegacyHostID returns gopsutil's host ID — the identity derivation used by
+// agents enrolled before persistent agent-id files existed. On Linux this is
+// privilege-dependent (DMI product UUID as root, /etc/machine-id otherwise),
+// which is why it is only used to grandfather existing enrollments.
+func LegacyHostID(ctx context.Context) (string, error) {
 	info, err := host.InfoWithContext(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	id := info.HostID
-	if id == "" {
-		id = info.Hostname
+	if info.HostID != "" {
+		return info.HostID, nil
 	}
-	return &Collector{agentID: id, version: version}, nil
+	return info.Hostname, nil
 }
 
 func (c *Collector) AgentID() string { return c.agentID }

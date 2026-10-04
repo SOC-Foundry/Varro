@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,6 +14,24 @@ import (
 	"strings"
 	"time"
 )
+
+// releasePubKeyHex is the ed25519 public key that release checksums must be
+// signed with (the private key lives only in the repo's CI secrets). An
+// upgrade whose checksums.txt.sig is missing or invalid is refused.
+const releasePubKeyHex = "dc3876b7f37a2ef8ef70f453b155250f96c3f7a8cfbc72d5a0f6d52ab4127985"
+
+// verifySignature checks an ed25519 hex signature over data.
+func verifySignature(pubHex string, data, hexSig []byte) bool {
+	pub, err := hex.DecodeString(pubHex)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+	sig, err := hex.DecodeString(strings.TrimSpace(string(hexSig)))
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(ed25519.PublicKey(pub), data, sig)
+}
 
 // remoteConfig is what the collector's /api/v1/agent/config returns.
 type remoteConfig struct {
@@ -98,6 +117,13 @@ func (a *Agent) selfUpgrade(ctx context.Context, repo, tag string) error {
 	checksums, err := fetch(base + "/checksums.txt")
 	if err != nil {
 		return fmt.Errorf("download checksums: %w", err)
+	}
+	sig, err := fetch(base + "/checksums.txt.sig")
+	if err != nil {
+		return fmt.Errorf("download signature (release may predate signing): %w", err)
+	}
+	if !verifySignature(releasePubKeyHex, checksums, sig) {
+		return fmt.Errorf("release signature verification FAILED for %s — refusing to upgrade", tag)
 	}
 	want := parseChecksum(checksums, asset)
 	if want == "" {

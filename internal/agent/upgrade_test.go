@@ -1,6 +1,11 @@
 package agent
 
-import "testing"
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
+	"testing"
+)
 
 func TestShouldUpgrade(t *testing.T) {
 	cases := []struct {
@@ -20,6 +25,29 @@ func TestShouldUpgrade(t *testing.T) {
 		if got := shouldUpgrade(c.current, c.desired); got != c.want {
 			t.Errorf("shouldUpgrade(%q, %q) = %v, want %v", c.current, c.desired, got, c.want)
 		}
+	}
+}
+
+func TestVerifySignature(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("abc123  varro-linux-amd64\n")
+	sig := []byte(hex.EncodeToString(ed25519.Sign(priv, data)) + "\n")
+	pubHex := hex.EncodeToString(pub)
+
+	if !verifySignature(pubHex, data, sig) {
+		t.Error("valid signature should verify")
+	}
+	if verifySignature(pubHex, []byte("tampered"), sig) {
+		t.Error("tampered data must not verify")
+	}
+	if verifySignature(releasePubKeyHex, data, sig) {
+		t.Error("signature from a different key must not verify against the release key")
+	}
+	if verifySignature(pubHex, data, []byte("not-hex")) {
+		t.Error("garbage signature must not verify")
 	}
 }
 
