@@ -39,7 +39,7 @@ func (s *Store) ReplaceEndpointVulns(ctx context.Context, endpointID string, fou
 		return nil, err
 	}
 	ins, err := tx.PrepareContext(ctx,
-		`INSERT OR IGNORE INTO vulns (endpoint_id, pkg, version, vuln_id) VALUES (?, ?, ?, ?)`)
+		`INSERT INTO vulns (endpoint_id, pkg, version, vuln_id) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`)
 	if err != nil {
 		return nil, err
 	}

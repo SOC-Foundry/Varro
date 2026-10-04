@@ -10,14 +10,10 @@ import (
 
 // EnqueueAction records an operator-issued response action and returns its id.
 func (s *Store) EnqueueAction(ctx context.Context, endpointID, typ, arg, issuedBy string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
+	return s.db.insertReturningID(ctx, `
 INSERT INTO actions (endpoint_id, type, arg, status, issued_by, issued_at)
 VALUES (?, ?, ?, 'pending', ?, ?)`,
 		endpointID, typ, arg, issuedBy, time.Now().Unix())
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // ClaimActions returns an endpoint's pending actions and marks them sent, so a

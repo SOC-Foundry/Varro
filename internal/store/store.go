@@ -1,4 +1,5 @@
-// Package store persists telemetry in SQLite (pure-Go driver, no cgo).
+// Package store persists telemetry in SQLite (pure-Go driver, no cgo) or
+// Postgres, chosen by the DSN passed to Open.
 package store
 
 import (
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver (pure Go)
 	_ "modernc.org/sqlite"
 
 	"github.com/soc-foundry/varro/internal/model"
@@ -20,20 +22,37 @@ import (
 const onlineWindow = 60 * time.Second
 
 type Store struct {
-	db *sql.DB
+	db *DB
 }
 
-func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, err
+// Open connects to the store. A dsn beginning with postgres:// or
+// postgresql:// uses Postgres; anything else is treated as a SQLite file path.
+func Open(dsn string) (*Store, error) {
+	pg := strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://")
+
+	var sdb *sql.DB
+	var err error
+	if pg {
+		sdb, err = sql.Open("pgx", dsn)
+		if err != nil {
+			return nil, err
+		}
+		// Postgres handles concurrent writers; allow a real pool.
+		sdb.SetMaxOpenConns(20)
+		sdb.SetMaxIdleConns(5)
+	} else {
+		sdb, err = sql.Open("sqlite", dsn+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+		if err != nil {
+			return nil, err
+		}
+		// The modernc driver serializes writes; a single connection avoids
+		// SQLITE_BUSY churn under concurrent ingest.
+		sdb.SetMaxOpenConns(1)
 	}
-	// The modernc driver serializes writes; a single connection avoids
-	// SQLITE_BUSY churn under concurrent ingest.
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+
+	s := &Store{db: &DB{sdb: sdb, pg: pg}}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		sdb.Close()
 		return nil, err
 	}
 	return s, nil
@@ -42,7 +61,7 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
+	ddl := `
 CREATE TABLE IF NOT EXISTS endpoints (
 	id         TEXT PRIMARY KEY,
 	hostname   TEXT NOT NULL,
@@ -180,8 +199,8 @@ CREATE TABLE IF NOT EXISTS edges (
 	PRIMARY KEY (src_id, dst_id, process, dst_port)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
-`)
-	if err != nil {
+`
+	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err
 	}
 	// Additive column migrations for databases created before v0.2/v0.3; the
@@ -201,13 +220,15 @@ CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
 		`ALTER TABLE samples ADD COLUMN posture_fails INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN pending_updates INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		if _, err := s.db.Exec(stmt); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") &&
+			!strings.Contains(err.Error(), "already exists") {
 			return err
 		}
 	}
 	// The default org always exists; legacy agents and master-token ingest
 	// land here.
-	_, err = s.db.Exec(`INSERT OR IGNORE INTO orgs (id, name, created_at) VALUES (?, 'Default', ?)`,
+	_, err := s.db.Exec(`INSERT INTO orgs (id, name, created_at) VALUES (?, 'Default', ?) ON CONFLICT DO NOTHING`,
 		model.DefaultOrg, time.Now().Unix())
 	return err
 }
@@ -243,7 +264,7 @@ ON CONFLICT(id) DO UPDATE SET
 	hostname=excluded.hostname, os=excluded.os, platform=excluded.platform,
 	arch=excluded.arch, cores=excluded.cores, mem_total=excluded.mem_total,
 	agent_version=excluded.agent_version, org_id=excluded.org_id,
-	last_seen=MAX(endpoints.last_seen, excluded.last_seen)`)
+	last_seen=` + s.db.greatest("endpoints.last_seen", "excluded.last_seen"))
 	if err != nil {
 		return err
 	}
@@ -410,7 +431,6 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		`DELETE FROM alerts WHERE endpoint_id = ?`,
 		`DELETE FROM agent_tokens WHERE agent_id = ?`,
 		`DELETE FROM inventory WHERE endpoint_id = ?`,
-		`DELETE FROM edges WHERE src_id = ?1 OR dst_id = ?1`,
 		`DELETE FROM vulns WHERE endpoint_id = ?`,
 		`DELETE FROM vuln_scans WHERE endpoint_id = ?`,
 		`DELETE FROM actions WHERE endpoint_id = ?`,
@@ -418,6 +438,12 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 		if _, err := tx.ExecContext(ctx, stmt, endpointID); err != nil {
 			return false, err
 		}
+	}
+	// Edges reference the endpoint as either side; two placeholders keep this
+	// portable across dialects (no numbered-param reuse).
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM edges WHERE src_id = ? OR dst_id = ?`, endpointID, endpointID); err != nil {
+		return false, err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM endpoints WHERE id = ?`, endpointID)
 	if err != nil {
@@ -516,18 +542,17 @@ func (s *Store) Prune(ctx context.Context, retention time.Duration) (int64, erro
 // UpsertEdge records one observed fleet-internal communication path and
 // reports whether it was seen for the first time.
 func (s *Store) UpsertEdge(ctx context.Context, orgID, srcID, dstID, process string, port int, ts int64) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 INSERT INTO edges (org_id, src_id, dst_id, process, dst_port, first_seen, last_seen)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(src_id, dst_id, process, dst_port) DO UPDATE SET
-	last_seen = MAX(edges.last_seen, excluded.last_seen), org_id = excluded.org_id`,
+	last_seen = `+s.db.greatest("edges.last_seen", "excluded.last_seen")+`, org_id = excluded.org_id`,
 		orgID, srcID, dstID, process, port, ts, ts)
 	if err != nil {
 		return false, err
 	}
-	// SQLite reports 1 affected row for both insert and update; detect "new"
-	// by whether first_seen == ts after the statement.
-	_ = res
+	// Affected-row counts don't distinguish insert from update portably;
+	// detect "new" by whether first_seen == ts after the statement.
 	var first int64
 	err = s.db.QueryRowContext(ctx,
 		`SELECT first_seen FROM edges WHERE src_id=? AND dst_id=? AND process=? AND dst_port=?`,
@@ -656,14 +681,10 @@ func (s *Store) OpenAlert(ctx context.Context, rule, endpointID string) (int64, 
 }
 
 func (s *Store) FireAlert(ctx context.Context, a model.Alert) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
+	return s.db.insertReturningID(ctx, `
 INSERT INTO alerts (rule, endpoint_id, hostname, state, message, value, started_at, org_id)
 VALUES (?, ?, ?, 'firing', ?, ?, ?, ?)`,
 		a.Rule, a.EndpointID, a.Hostname, a.Message, a.Value, a.StartedAt.Unix(), a.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 func (s *Store) ResolveAlert(ctx context.Context, id int64) error {

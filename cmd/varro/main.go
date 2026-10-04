@@ -190,6 +190,8 @@ func runServer(ctx context.Context, args []string) error {
 	listen := fs.String("listen", ":9477", "listen address")
 	token := fs.String("token", envOr("VARRO_TOKEN", ""), "enrollment/admin token")
 	dbPath := fs.String("db", "varro.db", "SQLite database path")
+	dbURL := fs.String("db-url", os.Getenv("VARRO_DB_URL"),
+		"Postgres DSN (postgres://...); overrides --db when set")
 	retention := fs.Duration("retention", 72*time.Hour, "how long to keep samples and events")
 	agentInterval := fs.Duration("agent-interval", 10*time.Second, "sampling interval pushed to agents")
 	allowReenroll := fs.Bool("allow-reenroll", false, "allow an enrolled agent ID to enroll again")
@@ -263,7 +265,11 @@ func runServer(ctx context.Context, args []string) error {
 		}
 	}
 
-	st, err := store.Open(*dbPath)
+	dsn := *dbPath
+	if *dbURL != "" {
+		dsn = *dbURL
+	}
+	st, err := store.Open(dsn)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
