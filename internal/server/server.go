@@ -62,14 +62,16 @@ type Config struct {
 }
 
 type Server struct {
-	cfg   Config
-	store *store.Store
-	log   *slog.Logger
-	ips   *ipIndex
+	cfg       Config
+	store     *store.Store
+	log       *slog.Logger
+	ips       *ipIndex
+	listeners *listenerIndex
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: st, log: log, ips: newIPIndex()}
+	return &Server{cfg: cfg, store: st, log: log,
+		ips: newIPIndex(), listeners: newListenerIndex()}
 }
 
 // Run serves HTTP until the context is cancelled, pruning old samples in the

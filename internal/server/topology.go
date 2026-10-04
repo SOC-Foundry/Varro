@@ -39,6 +39,30 @@ func (x *ipIndex) lookup(ip string) string {
 	return x.byIP[ip]
 }
 
+// listenerIndex tracks each endpoint's current listening ports so edge
+// recording can tell client->service flows from their server-side mirrors.
+type listenerIndex struct {
+	mu     sync.RWMutex
+	byNode map[string]map[int]bool
+}
+
+func newListenerIndex() *listenerIndex { return &listenerIndex{byNode: map[string]map[int]bool{}} }
+
+func (l *listenerIndex) set(endpointID string, ports map[int]bool) {
+	l.mu.Lock()
+	l.byNode[endpointID] = ports
+	l.mu.Unlock()
+}
+
+// listening reports whether the endpoint is known to listen on the port.
+// Unknown endpoints (no snapshot seen yet this server lifetime) report false,
+// which just defers edge recording by one sample interval.
+func (l *listenerIndex) listening(endpointID string, port int) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.byNode[endpointID][port]
+}
+
 // splitRemote splits "ip:port" (IPv4) or "v6addr:port" (our agents format the
 // address bare, so the port is everything after the last colon).
 func splitRemote(remote string) (ip string, port int) {
@@ -74,6 +98,12 @@ func clientIP(r *http.Request) string {
 
 // correlateEdges indexes the snapshot's addresses and records fleet-internal
 // edges from its connection table, emitting events for first-seen paths.
+//
+// Direction normalization: every TCP session appears in BOTH endpoints'
+// connection tables — the client side points at the service port, the server
+// side points back at the client's ephemeral port. Only the client->service
+// direction is recorded, recognized by the destination port being one the
+// destination endpoint actually listens on.
 func (s *Server) correlateEdges(r *http.Request, orgID string, snap *model.Snapshot) {
 	for _, nic := range snap.Network.Interfaces {
 		for _, addr := range nic.Addrs {
@@ -81,6 +111,11 @@ func (s *Server) correlateEdges(r *http.Request, orgID string, snap *model.Snaps
 		}
 	}
 	s.ips.set(clientIP(r), snap.AgentID)
+	ports := map[int]bool{}
+	for _, lp := range snap.Security.ListeningPorts {
+		ports[int(lp.Port)] = true
+	}
+	s.listeners.set(snap.AgentID, ports)
 
 	ts := snap.Timestamp.Unix()
 	for _, conn := range snap.Security.Connections {
@@ -88,6 +123,9 @@ func (s *Server) correlateEdges(r *http.Request, orgID string, snap *model.Snaps
 		dst := s.ips.lookup(ip)
 		if dst == "" || dst == snap.AgentID {
 			continue
+		}
+		if !s.listeners.listening(dst, port) {
+			continue // server-side mirror of a flow owned by the other end
 		}
 		process := conn.Process
 		if process == "" {
