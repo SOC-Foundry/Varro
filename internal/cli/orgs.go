@@ -199,6 +199,23 @@ func EndpointRemove(ctx context.Context, args []string) error {
 	return nil
 }
 
+// OrgDelete removes an empty org (instance admin).
+func OrgDelete(ctx context.Context, args []string) error {
+	ref, rest := splitArgs(args)
+	fs := flag.NewFlagSet("org-delete", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	if ref == "" {
+		return fmt.Errorf("usage: varro org-delete <org-id-or-name>")
+	}
+	if err := doDelete(ctx, *base, *token, "/api/v1/orgs/"+url.PathEscape(ref)); err != nil {
+		return err
+	}
+	fmt.Printf("org %s deleted (tokens and memberships included)\n", ref)
+	return nil
+}
+
 // OrgRemoveMember drops a member from an org (admin).
 func OrgRemoveMember(ctx context.Context, args []string) error {
 	ref, rest := splitArgs(args)

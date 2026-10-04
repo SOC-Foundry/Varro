@@ -69,6 +69,40 @@ func (s *Store) OrgByRef(ctx context.Context, ref string) (model.Org, error) {
 	return o, nil
 }
 
+// DeleteOrg removes an empty org (its tokens and memberships included).
+// Orgs that still have endpoints are refused — decommission those first with
+// DeleteEndpoint so history isn't silently orphaned.
+func (s *Store) DeleteOrg(ctx context.Context, orgID string) error {
+	if orgID == model.DefaultOrg {
+		return fmt.Errorf("the default org cannot be deleted")
+	}
+	var endpoints int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM endpoints WHERE org_id = ?`, orgID).Scan(&endpoints); err != nil {
+		return err
+	}
+	if endpoints > 0 {
+		return fmt.Errorf("org still has %d endpoint(s); remove them first", endpoints)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`DELETE FROM org_tokens WHERE org_id = ?`,
+		`DELETE FROM org_members WHERE org_id = ?`,
+		`DELETE FROM alerts WHERE org_id = ?`,
+		`DELETE FROM events WHERE org_id = ?`,
+		`DELETE FROM orgs WHERE id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, orgID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // SetOrgDomain sets (or clears) an org's auto-join email domain.
 func (s *Store) SetOrgDomain(ctx context.Context, orgID, domain string) error {
 	_, err := s.db.ExecContext(ctx,

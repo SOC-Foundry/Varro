@@ -89,6 +89,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
 	mux.HandleFunc("POST /api/v1/orgs", s.handleOrgCreate)
 	mux.HandleFunc("PUT /api/v1/orgs/{id}", s.handleOrgUpdate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}", s.handleOrgDelete)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/tokens", s.handleOrgToken)
 	mux.HandleFunc("GET /api/v1/orgs/{id}/tokens", s.handleOrgTokens)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/members", s.handleOrgInvite)

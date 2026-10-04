@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.10.0"
+var version = "0.10.1"
 
 func main() {
 	agent.Version = version
@@ -73,6 +73,8 @@ func main() {
 		err = cli.OrgInvite(ctx, os.Args[2:])
 	case "org-remove-member":
 		err = cli.OrgRemoveMember(ctx, os.Args[2:])
+	case "org-delete":
+		err = cli.OrgDelete(ctx, os.Args[2:])
 	case "endpoint-remove":
 		err = cli.EndpointRemove(ctx, os.Args[2:])
 	case "inventory":
@@ -115,6 +117,7 @@ Usage:
   varro org-token  <org> [--name LABEL]   [--token ADMIN]   mint agent enrollment token
   varro org-invite <org> <email>          [--token ADMIN]   grant a Google user access
   varro org-remove-member <org> <email>   [--token ADMIN]   drop a user from an org
+  varro org-delete <org>                  [--token ADMIN]   delete an empty org
   varro endpoint-remove <endpoint>        [--token ADMIN]   delete an endpoint + its data
 
 The agent and the query commands default --server to $VARRO_SERVER; tokens

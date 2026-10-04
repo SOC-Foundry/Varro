@@ -110,6 +110,25 @@ func (s *Server) handleOrgUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"org_id": org.ID, "auto_join_domain": domain})
 }
 
+// handleOrgDelete removes an empty org (instance admin only).
+func (s *Server) handleOrgDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err := s.store.DeleteOrg(r.Context(), org.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.log.Info("org deleted", "org", org.ID, "name", org.Name)
+	writeJSON(w, map[string]bool{"deleted": true})
+}
+
 // handleOrgMembers lists an org's membership (org admins and up).
 func (s *Server) handleOrgMembers(w http.ResponseWriter, r *http.Request) {
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
