@@ -408,8 +408,9 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  $("empty").style.display = eps.length || adminMode ? "none" : "block";
-  if (!adminMode) $("detail").style.display = eps.length && selected ? "block" : "none";
+  const otherView = adminMode || topoMode;
+  $("empty").style.display = eps.length || otherView ? "none" : "block";
+  if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
 
 async function refreshDetail() {
