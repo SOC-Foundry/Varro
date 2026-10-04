@@ -141,6 +141,7 @@ const (
 	EventFIMChange       = "fim_change"
 	EventConnNewInternal = "conn_new_internal" // first-seen fleet-internal communication path
 	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
+	EventThreatMatch     = "threat_match"      // connection to a known-malicious indicator
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes

@@ -51,7 +51,9 @@ type Config struct {
 	Gmail            GmailConfig
 	Version          string
 
-	VulnScan bool // match inventories against OSV.dev
+	VulnScan    bool     // match inventories against OSV.dev
+	ThreatIntel bool     // match connection remotes against known-bad IP feeds
+	ThreatFeeds []string // override the default indicator feeds
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
@@ -70,11 +72,16 @@ type Server struct {
 	ips       *ipIndex
 	listeners *listenerIndex
 	rdns      *rdnsCache
+	ti        *threatIntel
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: st, log: log,
+	s := &Server{cfg: cfg, store: st, log: log,
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache()}
+	if cfg.ThreatIntel {
+		s.ti = newThreatIntel(cfg.ThreatFeeds)
+	}
+	return s
 }
 
 // Run serves HTTP until the context is cancelled, pruning old samples in the
@@ -139,6 +146,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.alertLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
+	}
+	if s.ti != nil {
+		go s.threatRefreshLoop(ctx)
 	}
 	go func() {
 		<-ctx.Done()
@@ -248,6 +258,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 			s.notifyEvents(snap.Hostname, snap.Events)
 		}
 		s.correlateEdges(r, orgID, snap)
+		s.checkThreats(r.Context(), orgID, snap)
 	}
 	writeJSON(w, map[string]int{"accepted": len(snaps)})
 }
@@ -475,12 +486,17 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 // handleHealth is an unauthenticated liveness probe exposing coarse,
 // non-sensitive capability flags.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{
+	resp := map[string]any{
 		"status":        "ok",
 		"version":       s.cfg.Version,
 		"email_enabled": s.mailEnabled(),
 		"auth_enabled":  s.AuthEnabled(),
-	})
+		"threat_intel":  s.ti != nil,
+	}
+	if s.ti != nil {
+		resp["threat_indicators"] = s.ti.count()
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleEndpoints(w http.ResponseWriter, r *http.Request) {

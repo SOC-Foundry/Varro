@@ -482,10 +482,17 @@ function renderVulns(v) {
   ).join("") || '<tr><td colspan="4" style="color:var(--green)">no known vulnerabilities 🎉</td></tr>';
 }
 
+// Event types worth drawing the eye to.
+const hotEvents = new Set(["threat_match", "suid_change", "identity_change", "vuln_new", "auth_failures"]);
+
 function renderEvents(events) {
-  $("events").innerHTML = events.map(ev =>
-    `<div class="evt">${new Date(ev.timestamp).toLocaleTimeString()} <span class="chip type">${esc(ev.type)}</span> ${esc(ev.message)}</div>`
-  ).join("") || '<span style="color:var(--dim)">no events yet</span>';
+  $("events").innerHTML = events.map(ev => {
+    const hot = hotEvents.has(ev.type);
+    const chip = hot
+      ? `<span class="chip" style="background:#4c1316;color:#ffb3ad;border:1px solid var(--red)">${esc(ev.type)}</span>`
+      : `<span class="chip type">${esc(ev.type)}</span>`;
+    return `<div class="evt"${hot ? ' style="color:var(--text)"' : ''}>${new Date(ev.timestamp).toLocaleTimeString()} ${chip} ${esc(ev.message)}</div>`;
+  }).join("") || '<span style="color:var(--dim)">no events yet</span>';
 }
 
 function renderDetail(snap, hist) {

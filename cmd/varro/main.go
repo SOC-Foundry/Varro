@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.18.0"
+var version = "0.19.0"
 
 func main() {
 	agent.Version = version
@@ -196,7 +196,7 @@ func runServer(ctx context.Context, args []string) error {
 	rulesPath := fs.String("rules", "", "JSON file of alert rules (default: built-in rules)")
 	webhookURL := fs.String("webhook-url", envOr("VARRO_WEBHOOK_URL", ""), "generic JSON webhook for notifications")
 	slackURL := fs.String("slack-webhook-url", envOr("VARRO_SLACK_WEBHOOK_URL", ""), "Slack incoming-webhook URL")
-	notifyEvents := fs.String("notify-events", "autostart_change,nic_new,listen_new",
+	notifyEvents := fs.String("notify-events", "threat_match,autostart_change,nic_new,listen_new,suid_change,identity_change",
 		"comma-separated event types forwarded to notifiers (empty to disable)")
 	smtpHost := fs.String("smtp-host", "", "SMTP host for email notifications")
 	smtpPort := fs.Int("smtp-port", 587, "SMTP port")
@@ -226,6 +226,10 @@ func runServer(ctx context.Context, args []string) error {
 		"if set, /metrics requires this bearer token")
 	vulnScan := fs.Bool("vuln-scan", true,
 		"match package inventories against OSV.dev for known vulnerabilities")
+	threatIntel := fs.Bool("threat-intel", true,
+		"match connection remotes against known-malicious IP feeds (abuse.ch)")
+	threatFeeds := fs.String("threat-feeds", "",
+		"comma-separated indicator feed URLs (default: Feodo Tracker C2 list)")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
 		"push the desired agent version so agents self-upgrade from GitHub releases")
 	desiredVersion := fs.String("agent-desired-version", "",
@@ -297,6 +301,8 @@ func runServer(ctx context.Context, args []string) error {
 		AdminEmails:  admins,
 		MetricsToken: *metricsToken,
 		VulnScan:     *vulnScan,
+		ThreatIntel:  *threatIntel,
+		ThreatFeeds:  splitNonEmpty(*threatFeeds),
 		AgentDesiredVersion: func() string {
 			if !*autoUpgrade {
 				return ""
