@@ -33,18 +33,22 @@ $got  = (Get-FileHash "$dir\varro-new.exe" -Algorithm SHA256).Hash.ToLower()
 if ($got -ne $want) { throw "varro-install: checksum verification failed" }
 
 # Replace any existing service/binary.
-sc.exe stop varro-agent 2>$null | Out-Null
-Start-Sleep -Seconds 2
-sc.exe delete varro-agent 2>$null | Out-Null
+if (Get-Service varro-agent -ErrorAction SilentlyContinue) {
+    Stop-Service varro-agent -Force -ErrorAction SilentlyContinue
+    sc.exe delete varro-agent | Out-Null
+    Start-Sleep -Seconds 2
+}
 Move-Item -Force "$dir\varro-new.exe" "$dir\varro.exe"
 Remove-Item -Force "$dir\checksums.txt"
 
-$bin = "`"$dir\varro.exe`" agent --server $server --token $env:VARRO_TOKEN --state-dir `"$state`""
-sc.exe create varro-agent binPath= $bin start= auto DisplayName= "Varro telemetry agent" | Out-Null
+# New-Service (not sc.exe create): PowerShell 5.1 mangles embedded quotes in
+# native-command arguments, which silently breaks sc.exe binPath values.
+$bin = "`"$dir\varro.exe`" agent --server $server --token $($env:VARRO_TOKEN) --state-dir `"$state`""
+New-Service -Name varro-agent -BinaryPathName $bin -DisplayName "Varro telemetry agent" -StartupType Automatic | Out-Null
 # Self-upgrade exits the service with a failure code; these recovery actions
-# restart it on the new binary.
+# restart it on the new binary. (Plain tokens only — safe for sc.exe.)
 sc.exe failure varro-agent reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
-sc.exe start varro-agent | Out-Null
+Start-Service varro-agent
 
 Start-Sleep -Seconds 3
 $svc = Get-Service varro-agent
