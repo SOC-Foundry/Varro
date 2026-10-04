@@ -230,9 +230,12 @@ const DefaultOrg = "default"
 // Org is a tenant: a customer or team whose endpoints, alerts, and events are
 // isolated from every other tenant's.
 type Org struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// AutoJoinDomain, when set, automatically adds anyone signing in with a
+	// verified email at this domain as a member of this org.
+	AutoJoinDomain string    `json:"auto_join_domain,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // User is a dashboard user authenticated via Google sign-in.

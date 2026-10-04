@@ -104,6 +104,19 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Domain auto-join: an org that claims this email's domain automatically
+	// gains the user as a member on sign-in.
+	if at := strings.LastIndex(email, "@"); at >= 0 {
+		domain := email[at+1:]
+		if orgID, err := s.store.OrgIDForDomain(r.Context(), domain); err == nil && orgID != "" {
+			if role, _ := s.store.OrgRole(r.Context(), orgID, email); role == "" {
+				if err := s.store.AddOrgMember(r.Context(), orgID, email, "member"); err == nil {
+					s.log.Info("user auto-joined org by domain", "email", email, "org", orgID, "domain", domain)
+				}
+			}
+		}
+	}
+
 	token, err := s.store.CreateSession(r.Context(), user.ID, sessionTTL, hashToken)
 	if err != nil {
 		http.Error(w, "storage error", http.StatusInternalServerError)

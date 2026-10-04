@@ -64,6 +64,52 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// freeMailDomains may never be used for auto-join: they are shared by the
+// whole world, so claiming one would pull strangers into a tenant.
+var freeMailDomains = map[string]bool{
+	"gmail.com": true, "googlemail.com": true, "outlook.com": true,
+	"hotmail.com": true, "live.com": true, "yahoo.com": true,
+	"icloud.com": true, "me.com": true, "aol.com": true,
+	"proton.me": true, "protonmail.com": true, "gmx.com": true,
+}
+
+// handleOrgUpdate sets org settings — currently the auto-join domain.
+// Instance admin only: letting org admins claim domains would allow a tenant
+// to capture other organizations' users.
+func (s *Server) handleOrgUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	var req struct {
+		AutoJoinDomain *string `json:"auto_join_domain"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.AutoJoinDomain == nil {
+		http.Error(w, "bad request: need {\"auto_join_domain\": ...}", http.StatusBadRequest)
+		return
+	}
+	domain := strings.ToLower(strings.TrimSpace(*req.AutoJoinDomain))
+	if freeMailDomains[domain] {
+		http.Error(w, "refusing to auto-join a shared free-mail domain", http.StatusBadRequest)
+		return
+	}
+	if domain != "" && !strings.Contains(domain, ".") {
+		http.Error(w, "not a valid domain", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetOrgDomain(r.Context(), org.ID, domain); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("org auto-join domain set", "org", org.ID, "domain", domain)
+	writeJSON(w, map[string]string{"org_id": org.ID, "auto_join_domain": domain})
+}
+
 // handleOrgMembers lists an org's membership (org admins and up).
 func (s *Server) handleOrgMembers(w http.ResponseWriter, r *http.Request) {
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
@@ -132,11 +178,21 @@ func (s *Server) handleOrgCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
+		Name           string `json:"name"`
+		AutoJoinDomain string `json:"auto_join_domain"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil ||
 		strings.TrimSpace(req.Name) == "" {
 		http.Error(w, "bad request: need {\"name\": ...}", http.StatusBadRequest)
+		return
+	}
+	domain := strings.ToLower(strings.TrimSpace(req.AutoJoinDomain))
+	if freeMailDomains[domain] {
+		http.Error(w, "refusing to auto-join a shared free-mail domain", http.StatusBadRequest)
+		return
+	}
+	if domain != "" && !strings.Contains(domain, ".") {
+		http.Error(w, "not a valid domain", http.StatusBadRequest)
 		return
 	}
 	org, err := s.store.CreateOrg(r.Context(), strings.TrimSpace(req.Name))
@@ -144,7 +200,12 @@ func (s *Server) handleOrgCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	s.log.Info("org created", "org", org.ID, "name", org.Name)
+	if domain != "" {
+		if err := s.store.SetOrgDomain(r.Context(), org.ID, domain); err == nil {
+			org.AutoJoinDomain = domain
+		}
+	}
+	s.log.Info("org created", "org", org.ID, "name", org.Name, "auto_join_domain", domain)
 	writeJSON(w, org)
 }
 
@@ -246,5 +307,14 @@ func (s *Server) handleOrgInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("org member added", "org", org.ID, "email", email)
+
+	// Automated invitation email when an SMTP relay is configured.
+	go s.sendMailTo([]string{email},
+		"You've been invited to Varro ("+org.Name+")",
+		"You've been granted access to the \""+org.Name+"\" organization on Varro, "+
+			"SOC Foundry's endpoint telemetry platform.\r\n\r\n"+
+			"Sign in with this Google account at:\r\n\r\n    "+
+			strings.TrimSuffix(s.cfg.Google.BaseURL, "/")+"\r\n")
+
 	writeJSON(w, map[string]string{"org_id": org.ID, "email": email})
 }

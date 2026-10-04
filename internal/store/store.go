@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 		`ALTER TABLE samples ADD COLUMN max_temp REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN io_read_bps REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN io_write_bps REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE orgs ADD COLUMN auto_join_domain TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return err

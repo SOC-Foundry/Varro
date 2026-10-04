@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.9.0"
+var version = "0.10.0"
 
 func main() {
 	agent.Version = version
@@ -65,6 +65,8 @@ func main() {
 		err = cli.Orgs(ctx, os.Args[2:])
 	case "org-create":
 		err = cli.OrgCreate(ctx, os.Args[2:])
+	case "onboard":
+		err = cli.Onboard(ctx, os.Args[2:])
 	case "org-token":
 		err = cli.OrgToken(ctx, os.Args[2:])
 	case "org-invite":
@@ -107,8 +109,9 @@ Usage:
   varro events    [endpoint] [--server URL] [-n 50]
   varro inventory [endpoint] [--server URL] [--grep NAME]
   varro revoke    <endpoint> [--server URL] [--token TOKEN]
+  varro onboard <org> <admin-email> [--domain d.com]        one-shot customer setup
   varro orgs                              [--token ADMIN]   list orgs
-  varro org-create <name>                 [--token ADMIN]   create an org
+  varro org-create <name> [--domain d.com] [--token ADMIN]  create an org
   varro org-token  <org> [--name LABEL]   [--token ADMIN]   mint agent enrollment token
   varro org-invite <org> <email>          [--token ADMIN]   grant a Google user access
   varro org-remove-member <org> <email>   [--token ADMIN]   drop a user from an org

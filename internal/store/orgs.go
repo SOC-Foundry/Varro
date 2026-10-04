@@ -33,7 +33,8 @@ func (s *Store) CreateOrg(ctx context.Context, name string) (model.Org, error) {
 }
 
 func (s *Store) Orgs(ctx context.Context) ([]model.Org, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at FROM orgs ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, auto_join_domain, created_at FROM orgs ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +43,7 @@ func (s *Store) Orgs(ctx context.Context) ([]model.Org, error) {
 	for rows.Next() {
 		var o model.Org
 		var created int64
-		if err := rows.Scan(&o.ID, &o.Name, &created); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &created); err != nil {
 			return nil, err
 		}
 		o.CreatedAt = time.Unix(created, 0).UTC()
@@ -56,8 +57,8 @@ func (s *Store) OrgByRef(ctx context.Context, ref string) (model.Org, error) {
 	var o model.Org
 	var created int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, created_at FROM orgs WHERE id = ? OR name = ?`, ref, ref).
-		Scan(&o.ID, &o.Name, &created)
+		`SELECT id, name, auto_join_domain, created_at FROM orgs WHERE id = ? OR name = ?`, ref, ref).
+		Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &created)
 	if err == sql.ErrNoRows {
 		return model.Org{}, fmt.Errorf("no org %q", ref)
 	}
@@ -66,6 +67,27 @@ func (s *Store) OrgByRef(ctx context.Context, ref string) (model.Org, error) {
 	}
 	o.CreatedAt = time.Unix(created, 0).UTC()
 	return o, nil
+}
+
+// SetOrgDomain sets (or clears) an org's auto-join email domain.
+func (s *Store) SetOrgDomain(ctx context.Context, orgID, domain string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE orgs SET auto_join_domain = ? WHERE id = ?`, domain, orgID)
+	return err
+}
+
+// OrgIDForDomain returns the org that auto-joins a given email domain, or "".
+func (s *Store) OrgIDForDomain(ctx context.Context, domain string) (string, error) {
+	if domain == "" {
+		return "", nil
+	}
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM orgs WHERE auto_join_domain = ?`, domain).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
 }
 
 // ---- org enrollment tokens ----

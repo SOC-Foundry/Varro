@@ -34,17 +34,77 @@ func OrgCreate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("org-create", flag.ExitOnError)
 	base := serverFlag(fs)
 	token := tokenFlag(fs)
+	domain := fs.String("domain", "", "auto-join email domain (anyone @domain becomes a member at sign-in)")
 	fs.Parse(rest)
 	if name == "" {
-		return fmt.Errorf("usage: varro org-create <name> [--server URL] [--token TOKEN]")
+		return fmt.Errorf("usage: varro org-create <name> [--domain example.com]")
 	}
 
 	var org model.Org
-	if err := postJSON(ctx, *base, *token, "/api/v1/orgs", map[string]string{"name": name}, &org); err != nil {
+	if err := postJSON(ctx, *base, *token, "/api/v1/orgs",
+		map[string]string{"name": name, "auto_join_domain": *domain}, &org); err != nil {
 		return err
 	}
 	fmt.Printf("org created: %s (id %s)\n", org.Name, org.ID)
+	if org.AutoJoinDomain != "" {
+		fmt.Printf("auto-join: anyone signing in @%s becomes a member\n", org.AutoJoinDomain)
+	}
 	fmt.Printf("next: varro org-token %s   # mint an enrollment token for its agents\n", org.ID)
+	return nil
+}
+
+// Onboard sets up a new customer in one shot: org, admin user, enrollment
+// token, and ready-to-send install commands.
+func Onboard(ctx context.Context, args []string) error {
+	name, rest := splitArgs(args)
+	var email string
+	if len(rest) > 0 && rest[0][0] != '-' {
+		email, rest = rest[0], rest[1:]
+	}
+	fs := flag.NewFlagSet("onboard", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	domain := fs.String("domain", "", "auto-join email domain for their whole team")
+	fs.Parse(rest)
+	if name == "" || email == "" {
+		return fmt.Errorf("usage: varro onboard <org-name> <admin-email> [--domain example.com]")
+	}
+
+	var org model.Org
+	if err := postJSON(ctx, *base, *token, "/api/v1/orgs",
+		map[string]string{"name": name, "auto_join_domain": *domain}, &org); err != nil {
+		return fmt.Errorf("create org: %w", err)
+	}
+	if err := postJSON(ctx, *base, *token, "/api/v1/orgs/"+url.PathEscape(org.ID)+"/members",
+		map[string]string{"email": email, "role": "admin"}, nil); err != nil {
+		return fmt.Errorf("invite admin: %w", err)
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := postJSON(ctx, *base, *token, "/api/v1/orgs/"+url.PathEscape(org.ID)+"/tokens",
+		map[string]string{"name": "initial"}, &tok); err != nil {
+		return fmt.Errorf("mint token: %w", err)
+	}
+
+	fmt.Printf(`org onboarded: %s (id %s)
+
+org admin:  %s  (invitation email sent if SMTP is configured)
+sign-in:    %s
+`, org.Name, org.ID, email, *base)
+	if org.AutoJoinDomain != "" {
+		fmt.Printf("auto-join:  anyone signing in @%s becomes a member automatically\n", org.AutoJoinDomain)
+	}
+	fmt.Printf(`
+enrollment token (shown once):
+
+  %s
+
+install agents:
+  Linux:    curl -sSL %s/install.sh | sudo VARRO_TOKEN=%s sh
+  Windows:  $env:VARRO_TOKEN = "%s"; iwr -UseBasicParsing %s/install.ps1 | iex
+  macOS:    curl -sSL %s/install.sh | sudo VARRO_TOKEN=%s sh
+`, tok.Token, *base, tok.Token, tok.Token, *base, *base, tok.Token)
 	return nil
 }
 

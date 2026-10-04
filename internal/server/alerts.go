@@ -293,17 +293,25 @@ type SMTPConfig struct {
 }
 
 func (s *Server) sendMail(text string) {
+	s.sendMailTo(s.cfg.SMTP.To, text, text)
+}
+
+// sendMailTo delivers one message via the configured SMTP relay.
+func (s *Server) sendMailTo(to []string, subject, body string) {
 	c := s.cfg.SMTP
+	if c.Host == "" || len(to) == 0 {
+		return
+	}
 	addr := fmt.Sprintf("%s:%d", c.Host, c.Port)
 	msg := []byte("From: " + c.From + "\r\n" +
-		"To: " + strings.Join(c.To, ", ") + "\r\n" +
-		"Subject: " + text + "\r\n\r\n" +
-		text + "\r\n")
+		"To: " + strings.Join(to, ", ") + "\r\n" +
+		"Subject: " + subject + "\r\n\r\n" +
+		body + "\r\n")
 	var auth smtp.Auth
 	if c.User != "" {
 		auth = smtp.PlainAuth("", c.User, c.Pass, c.Host)
 	}
-	if err := smtp.SendMail(addr, auth, c.From, c.To, msg); err != nil {
-		s.log.Error("email notify failed", "error", err)
+	if err := smtp.SendMail(addr, auth, c.From, to, msg); err != nil {
+		s.log.Error("email send failed", "error", err)
 	}
 }
