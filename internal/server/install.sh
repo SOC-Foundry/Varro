@@ -68,7 +68,8 @@ WantedBy=multi-user.target
 EOF
   chmod 600 "$UNIT"
   systemctl daemon-reload
-  systemctl enable --now varro-agent
+  systemctl enable varro-agent
+  systemctl restart varro-agent   # restart (not just enable --now) so reinstall picks up a new binary
   sleep 2
   systemctl is-active --quiet varro-agent || fail "service failed to start; see: journalctl -u varro-agent"
   echo

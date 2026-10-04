@@ -284,12 +284,13 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				rcs = append(rcs, rc{ip, n})
 			}
 			sort.Slice(rcs, func(i, j int) bool { return rcs[i].n > rcs[j].n })
-			var remotes []string
+			var remotes, names []string
 			for i := 0; i < len(rcs) && i < 5; i++ {
 				remotes = append(remotes, rcs[i].ip)
+				names = append(names, s.rdns.name(rcs[i].ip))
 			}
 			edges = append(edges, model.TopoEdge{
-				Src: id, Dst: "internet", Count: a.count, Remotes: remotes,
+				Src: id, Dst: "internet", Count: a.count, Remotes: remotes, RemoteNames: names,
 			})
 		}
 	}

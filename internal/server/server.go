@@ -69,11 +69,12 @@ type Server struct {
 	log       *slog.Logger
 	ips       *ipIndex
 	listeners *listenerIndex
+	rdns      *rdnsCache
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	return &Server{cfg: cfg, store: st, log: log,
-		ips: newIPIndex(), listeners: newListenerIndex()}
+		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache()}
 }
 
 // Run serves HTTP until the context is cancelled, pruning old samples in the
@@ -538,6 +539,11 @@ func (s *Server) handleLatest(w http.ResponseWriter, r *http.Request) {
 	if snap == nil {
 		http.Error(w, "unknown endpoint", http.StatusNotFound)
 		return
+	}
+	// Enrich connection remotes with reverse-DNS (cached, non-blocking).
+	for i := range snap.Security.Connections {
+		ip, _ := splitRemote(snap.Security.Connections[i].Remote)
+		snap.Security.Connections[i].RemoteName = s.rdns.name(ip)
 	}
 	writeJSON(w, snap)
 }

@@ -107,11 +107,12 @@ type ListeningPort struct {
 }
 
 type OutboundConn struct {
-	Proto   string `json:"proto"`
-	Local   string `json:"local"`
-	Remote  string `json:"remote"`
-	PID     int32  `json:"pid"`
-	Process string `json:"process"`
+	Proto      string `json:"proto"`
+	Local      string `json:"local"`
+	Remote     string `json:"remote"`
+	RemoteName string `json:"remote_name,omitempty"` // reverse-DNS, filled by the server
+	PID        int32  `json:"pid"`
+	Process    string `json:"process"`
 }
 
 type SessionInfo struct {
@@ -210,7 +211,8 @@ type TopoEdge struct {
 	Count     int           `json:"count"` // external: connection count; internal: process/port pairs
 	FirstSeen time.Time     `json:"first_seen,omitempty"`
 	LastSeen  time.Time     `json:"last_seen,omitempty"`
-	Remotes   []string      `json:"remotes,omitempty"` // external edges: sample remote IPs
+	Remotes   []string      `json:"remotes,omitempty"`        // external edges: sample remote IPs
+	RemoteNames []string    `json:"remote_names,omitempty"`   // reverse-DNS of Remotes, same order ("" when unresolved)
 }
 
 type Event struct {

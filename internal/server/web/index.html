@@ -537,9 +537,10 @@ function renderDetail(snap, hist) {
 
   const conns = snap.security?.connections ?? [];
   $("connNow").textContent = `${snap.security?.established_conns ?? 0} established`;
-  $("conns").innerHTML = conns.map(cn =>
-    `<tr><td>${esc(cn.process || "–")}</td><td>${esc(cn.remote)}</td><td class="num">${cn.pid}</td></tr>`
-  ).join("") || '<tr><td colspan="3" style="color:var(--dim)">none visible</td></tr>';
+  $("conns").innerHTML = conns.map(cn => {
+    const where = cn.remote_name ? `${esc(cn.remote_name)} <span style="color:var(--dim)">${esc(cn.remote)}</span>` : esc(cn.remote);
+    return `<tr><td>${esc(cn.process || "–")}</td><td>${where}</td><td class="num">${cn.pid}</td></tr>`;
+  }).join("") || '<tr><td colspan="3" style="color:var(--dim)">none visible</td></tr>';
 
   $("disks").innerHTML = (snap.disks ?? []).map(d => {
     const cls = d.used_percent > 90 ? "crit" : d.used_percent > 75 ? "warn" : "";
@@ -1020,7 +1021,11 @@ function renderTopoInfo() {
       const exts = topoEdges.filter(e => e.dst === "internet");
       box.innerHTML = `<h3>☁ internet</h3>` + exts.map(e => {
         const src = topoNodes.find(x => x.id === e.src);
-        return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${esc(src?.hostname ?? e.src)} → ${e.count} connection${e.count === 1 ? "" : "s"} <span style="color:var(--dim)">top remotes: ${(e.remotes ?? []).map(esc).join(", ")}</span></div>`;
+        const remotes = (e.remotes ?? []).map((ip, i) => {
+          const nm = (e.remote_names ?? [])[i];
+          return nm ? `${esc(nm)} (${esc(ip)})` : esc(ip);
+        }).join(", ");
+        return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${esc(src?.hostname ?? e.src)} → ${e.count} connection${e.count === 1 ? "" : "s"}<br><span style="color:var(--dim)">top remotes: ${remotes}</span></div>`;
       }).join("");
       return;
     }
@@ -1038,9 +1043,13 @@ function renderTopoInfo() {
   const e = topoSel.e;
   const name = id => id === "internet" ? "internet" : esc(topoNodes.find(x => x.id === id)?.hostname ?? id);
   if (!e.internal) {
+    const remotes = (e.remotes ?? []).map((ip, i) => {
+      const nm = (e.remote_names ?? [])[i];
+      return nm ? `${esc(nm)} (${esc(ip)})` : esc(ip);
+    }).join("<br>");
     box.innerHTML = `<h3>${name(e.src)} → internet</h3>
       <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"} right now<br>
-      <span style="color:var(--dim)">top remotes: ${(e.remotes ?? []).map(esc).join(", ")}</span></div>`;
+      <span style="color:var(--dim)">top remotes:<br>${remotes}</span></div>`;
     return;
   }
   box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}</h3>

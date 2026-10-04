@@ -25,16 +25,16 @@ func collectorIPs(serverURL string) ([]string, error) {
 	return ips, nil
 }
 
-// isolateHost installs an nftables ruleset that drops all traffic except
-// loopback, DNS, established flows, and the collector. Varro's own
-// "varro_isolate" table is used so unisolate is a clean teardown.
+// isolateHost drops all traffic except loopback, DNS, established flows, and
+// the collector. It prefers nftables (a dedicated "varro_isolate" table for
+// clean teardown) and falls back to iptables where the nft CLI is absent.
 func isolateHost(ctx context.Context, serverURL string) error {
-	if _, err := exec.LookPath("nft"); err != nil {
-		return fmt.Errorf("nftables (nft) required for isolation")
-	}
 	ips, err := collectorIPs(serverURL)
 	if err != nil {
 		return fmt.Errorf("resolve collector: %w", err)
+	}
+	if _, err := exec.LookPath("nft"); err != nil {
+		return isolateIptables(ctx, ips)
 	}
 	var allow strings.Builder
 	for _, ip := range ips {
@@ -68,11 +68,84 @@ func isolateHost(ctx context.Context, serverURL string) error {
 }
 
 func unisolateHost(ctx context.Context) error {
+	if _, err := exec.LookPath("nft"); err != nil {
+		return unisolateIptables(ctx)
+	}
 	// Removing our dedicated table restores normal networking; ignore "no
 	// such table" so unisolate is idempotent.
 	out, err := exec.CommandContext(ctx, "nft", "delete", "table", "inet", "varro_isolate").CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "No such file") {
 		return fmt.Errorf("nft delete: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// --- iptables fallback (uses a dedicated VARRO-ISOLATE chain per direction) ---
+
+func isolateIptables(ctx context.Context, ips []string) error {
+	if _, err := exec.LookPath("iptables"); err != nil {
+		return fmt.Errorf("neither nft nor iptables available for isolation")
+	}
+	run := func(args ...string) error {
+		out, err := exec.CommandContext(ctx, "iptables", args...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("iptables %v: %s", args, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	// Start clean, then build allow-rules ending in a DROP, and jump OUTPUT/
+	// INPUT at them.
+	unisolateIptables(ctx)
+	for _, chain := range []string{"VARRO-ISOLATE-OUT", "VARRO-ISOLATE-IN"} {
+		if err := run("-N", chain); err != nil {
+			return err
+		}
+	}
+	rules := [][]string{
+		{"-A", "VARRO-ISOLATE-OUT", "-o", "lo", "-j", "ACCEPT"},
+		{"-A", "VARRO-ISOLATE-OUT", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
+		{"-A", "VARRO-ISOLATE-OUT", "-p", "udp", "--dport", "53", "-j", "ACCEPT"},
+		{"-A", "VARRO-ISOLATE-OUT", "-p", "tcp", "--dport", "53", "-j", "ACCEPT"},
+		{"-A", "VARRO-ISOLATE-IN", "-i", "lo", "-j", "ACCEPT"},
+		{"-A", "VARRO-ISOLATE-IN", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
+	}
+	for _, ip := range ips {
+		if strings.Contains(ip, ":") {
+			continue
+		}
+		rules = append(rules,
+			[]string{"-A", "VARRO-ISOLATE-OUT", "-d", ip, "-j", "ACCEPT"},
+			[]string{"-A", "VARRO-ISOLATE-IN", "-s", ip, "-j", "ACCEPT"})
+	}
+	rules = append(rules,
+		[]string{"-A", "VARRO-ISOLATE-OUT", "-j", "DROP"},
+		[]string{"-A", "VARRO-ISOLATE-IN", "-j", "DROP"},
+		[]string{"-I", "OUTPUT", "1", "-j", "VARRO-ISOLATE-OUT"},
+		[]string{"-I", "INPUT", "1", "-j", "VARRO-ISOLATE-IN"})
+	for _, r := range rules {
+		if err := run(r...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unisolateIptables(ctx context.Context) error {
+	if _, err := exec.LookPath("iptables"); err != nil {
+		return nil
+	}
+	// Detach the jumps, then flush and delete our chains. All best-effort so
+	// teardown is idempotent regardless of current state.
+	cmds := [][]string{
+		{"-D", "OUTPUT", "-j", "VARRO-ISOLATE-OUT"},
+		{"-D", "INPUT", "-j", "VARRO-ISOLATE-IN"},
+		{"-F", "VARRO-ISOLATE-OUT"},
+		{"-F", "VARRO-ISOLATE-IN"},
+		{"-X", "VARRO-ISOLATE-OUT"},
+		{"-X", "VARRO-ISOLATE-IN"},
+	}
+	for _, c := range cmds {
+		exec.CommandContext(ctx, "iptables", c...).Run()
 	}
 	return nil
 }
