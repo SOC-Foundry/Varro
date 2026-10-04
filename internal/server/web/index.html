@@ -556,10 +556,14 @@ async function loadAdminOrg() {
       getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/members`),
       getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/tokens`),
     ]);
-    $("memberRows").innerHTML = members.map(m =>
-      `<tr><td>${esc(m.email)}</td><td>${esc(m.role)}</td>
-       <td><button class="abtn danger" onclick="removeMember('${esc(m.email)}')">remove</button></td></tr>`
-    ).join("") || '<tr><td colspan="3" style="color:var(--dim)">no members yet</td></tr>';
+    $("memberRows").innerHTML = members.map(m => {
+      const toggle = m.role === "admin"
+        ? `<button class="abtn danger" onclick="setRole('${esc(m.email)}','member')">make member</button>`
+        : `<button class="abtn danger" style="color:var(--accent)" onclick="setRole('${esc(m.email)}','admin')">make admin</button>`;
+      return `<tr><td>${esc(m.email)}</td><td>${esc(m.role)}</td>
+       <td style="white-space:nowrap">${toggle}
+       <button class="abtn danger" onclick="removeMember('${esc(m.email)}')">remove</button></td></tr>`;
+    }).join("") || '<tr><td colspan="3" style="color:var(--dim)">no members yet</td></tr>';
     $("tokenRows").innerHTML = tokens.map(t =>
       `<tr><td>${esc(t.name || "(unlabeled)")}</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>`
     ).join("") || '<tr><td colspan="2" style="color:var(--dim)">no tokens minted yet</td></tr>';
@@ -568,6 +572,13 @@ async function loadAdminOrg() {
       const cur = all.find(o => o.id === org);
       $("orgDomain").value = cur?.auto_join_domain ?? "";
     } catch {}
+  } catch (e) { oops(e); }
+}
+
+async function setRole(email, role) {
+  try {
+    await postJSON(`/api/v1/orgs/${encodeURIComponent($("adminOrgSelect").value)}/members`, {email, role});
+    loadAdminOrg();
   } catch (e) { oops(e); }
 }
 

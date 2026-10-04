@@ -355,6 +355,15 @@ func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(r.PathValue("email"))
+
+	// Guard: removing the org's last admin leaves it unmanageable.
+	if cur, err := s.store.OrgRole(r.Context(), org.ID, email); err == nil && cur == "admin" {
+		if n, err := s.store.OrgAdminCount(r.Context(), org.ID); err == nil && n <= 1 {
+			http.Error(w, "refusing to remove this org's last admin — promote someone else first", http.StatusConflict)
+			return
+		}
+	}
+
 	existed, err := s.store.RemoveOrgMember(r.Context(), org.ID, email)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -389,11 +398,23 @@ func (s *Server) handleOrgInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	// Guard: an upsert that demotes the org's last admin would leave the org
+	// unmanageable by its own members.
+	if req.Role != "admin" {
+		if cur, err := s.store.OrgRole(r.Context(), org.ID, email); err == nil && cur == "admin" {
+			if n, err := s.store.OrgAdminCount(r.Context(), org.ID); err == nil && n <= 1 {
+				http.Error(w, "refusing to demote this org's last admin — promote someone else first", http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	if err := s.store.AddOrgMember(r.Context(), org.ID, email, req.Role); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.log.Info("org member added", "org", org.ID, "email", email)
+	s.log.Info("org member added", "org", org.ID, "email", email, "role", req.Role)
 
 	// Automated invitation email when an SMTP relay is configured.
 	go s.sendMailTo([]string{email},

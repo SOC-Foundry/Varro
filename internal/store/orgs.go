@@ -259,6 +259,14 @@ func (s *Store) OrgTokenInfos(ctx context.Context, orgID string) ([]model.OrgTok
 	return out, rows.Err()
 }
 
+// OrgAdminCount returns how many members hold the admin role in an org.
+func (s *Store) OrgAdminCount(ctx context.Context, orgID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM org_members WHERE org_id = ? AND role = 'admin'`, orgID).Scan(&n)
+	return n, err
+}
+
 // RemoveOrgMember drops a member from an org. Returns whether the membership
 // existed.
 func (s *Store) RemoveOrgMember(ctx context.Context, orgID, email string) (bool, error) {
