@@ -17,13 +17,27 @@ type CFEmailConfig struct {
 	From      string // sender address at a domain onboarded to Email Sending
 }
 
+// GmailConfig sends via the Gmail API using a service account with
+// domain-wide delegation — for deployments where outbound SMTP is blocked
+// (e.g. Cloud Run) and the Workspace admin has authorized the service
+// account's client ID for the gmail.send scope.
+type GmailConfig struct {
+	SAKeyPath string // path to the service-account JSON key file
+	SendAs    string // the Workspace user to impersonate; also the From address
+}
+
 func (s *Server) cfEmailEnabled() bool {
 	return s.cfg.CFEmail.Token != "" && s.cfg.CFEmail.AccountID != "" && s.cfg.CFEmail.From != ""
 }
 
-// mailEnabled reports whether any outbound email path is configured.
+func (s *Server) gmailEnabled() bool {
+	return s.cfg.Gmail.SAKeyPath != "" && s.cfg.Gmail.SendAs != ""
+}
+
+// mailEnabled reports whether any outbound email transport is configured.
+// Transports in precedence order: Gmail API, Cloudflare, SMTP relay.
 func (s *Server) mailEnabled() bool {
-	return s.cfEmailEnabled() || s.cfg.SMTP.Host != ""
+	return s.gmailEnabled() || s.cfEmailEnabled() || s.cfg.SMTP.Host != ""
 }
 
 // sendViaCloudflare posts one message to the Email Sending API.

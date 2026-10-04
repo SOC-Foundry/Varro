@@ -30,7 +30,7 @@ import (
 )
 
 // version is stamped via -ldflags "-X main.version=..." on release builds.
-var version = "0.11.0"
+var version = "0.11.1"
 
 func main() {
 	agent.Version = version
@@ -201,6 +201,10 @@ func runServer(ctx context.Context, args []string) error {
 		"Cloudflare API token with Email Sending permission")
 	cfEmailFrom := fs.String("cf-email-from", os.Getenv("VARRO_CF_EMAIL_FROM"),
 		"sender address at a domain onboarded to Cloudflare Email Sending")
+	gmailSAKey := fs.String("gmail-sa-json", os.Getenv("VARRO_GMAIL_SA_JSON"),
+		"path to a Google service-account key JSON for Gmail API sending (domain-wide delegation)")
+	gmailSendAs := fs.String("gmail-send-as", os.Getenv("VARRO_GMAIL_SEND_AS"),
+		"Workspace user to impersonate and send as via the Gmail API")
 	googleClientID := fs.String("google-client-id", os.Getenv("VARRO_GOOGLE_CLIENT_ID"),
 		"Google OAuth client ID; setting this turns on required sign-in")
 	googleClientSecret := fs.String("google-client-secret", os.Getenv("VARRO_GOOGLE_CLIENT_SECRET"),
@@ -269,6 +273,11 @@ func runServer(ctx context.Context, args []string) error {
 			Token:     *cfEmailToken,
 			From:      *cfEmailFrom,
 		},
+		Gmail: server.GmailConfig{
+			SAKeyPath: *gmailSAKey,
+			SendAs:    *gmailSendAs,
+		},
+		Version: version,
 		Google: server.GoogleConfig{
 			ClientID:     *googleClientID,
 			ClientSecret: *googleClientSecret,

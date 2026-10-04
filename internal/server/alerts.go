@@ -296,10 +296,15 @@ func (s *Server) sendMail(text string) {
 	s.sendMailTo(s.cfg.SMTP.To, text, text)
 }
 
-// sendMailTo delivers one message via Cloudflare Email Service when
-// configured, falling back to the SMTP relay.
+// sendMailTo delivers one message via the first configured transport:
+// Gmail API, then Cloudflare Email Service, then the SMTP relay. With no
+// transport configured it is a silent no-op (email-less degradation).
 func (s *Server) sendMailTo(to []string, subject, body string) {
 	if len(to) == 0 {
+		return
+	}
+	if s.gmailEnabled() {
+		s.sendViaGmail(to, subject, body)
 		return
 	}
 	if s.cfEmailEnabled() {

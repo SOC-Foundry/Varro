@@ -48,6 +48,8 @@ type Config struct {
 	SlackWebhookURL  string
 	SMTP             SMTPConfig
 	CFEmail          CFEmailConfig
+	Gmail            GmailConfig
+	Version          string
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
@@ -87,6 +89,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
+	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
 	mux.HandleFunc("POST /api/v1/orgs", s.handleOrgCreate)
 	mux.HandleFunc("PUT /api/v1/orgs/{id}", s.handleOrgUpdate)
@@ -382,6 +385,17 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 		alerts = []model.Alert{}
 	}
 	writeJSON(w, alerts)
+}
+
+// handleHealth is an unauthenticated liveness probe exposing coarse,
+// non-sensitive capability flags.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{
+		"status":        "ok",
+		"version":       s.cfg.Version,
+		"email_enabled": s.mailEnabled(),
+		"auth_enabled":  s.AuthEnabled(),
+	})
 }
 
 func (s *Server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
