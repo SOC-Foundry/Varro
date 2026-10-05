@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/soc-foundry/varro/internal/collect"
+	"github.com/soc-foundry/varro/internal/ebpf"
 	"github.com/soc-foundry/varro/internal/model"
 )
 
@@ -66,6 +67,16 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		return nil, err
 	}
 	c := collect.New(agentID, Version)
+
+	// Best-effort kernel exec sensor; the agent runs fine without it (old
+	// kernel, no privilege, non-Linux).
+	if tr, err := ebpf.Start(); err == nil {
+		c.SetExecTracer(execAdapter{tr})
+		log.Info("eBPF exec sensor active")
+	} else {
+		log.Info("eBPF exec sensor unavailable, continuing without it", "reason", err)
+	}
+
 	return &Agent{
 		cfg:       cfg,
 		collector: c,
@@ -73,6 +84,19 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		interval:  cfg.Interval,
 		log:       log,
 	}, nil
+}
+
+// execAdapter converts the ebpf tracer's events to the model type the
+// collector consumes.
+type execAdapter struct{ tr *ebpf.Tracer }
+
+func (a execAdapter) Drain() []model.ExecSample {
+	evs := a.tr.Drain()
+	out := make([]model.ExecSample, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, model.ExecSample{PID: e.PID, Comm: e.Comm})
+	}
+	return out
 }
 
 // Run enrolls (if needed), then samples on the configured interval and ships

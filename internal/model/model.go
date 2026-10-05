@@ -33,6 +33,17 @@ type Snapshot struct {
 	ProcHashes []ProcHash `json:"proc_hashes,omitempty"`
 	// Containers running on the endpoint (empty when no runtime is present).
 	Containers []ContainerInfo `json:"containers,omitempty"`
+	// EBPF indicates the kernel exec sensor is active; Execs are distinct
+	// process execs it captured since the last sample — including short-lived
+	// ones the periodic process scan would miss.
+	EBPF  bool         `json:"ebpf"`
+	Execs []ExecSample `json:"execs,omitempty"`
+}
+
+// ExecSample is one process exec observed by the eBPF sensor.
+type ExecSample struct {
+	PID  uint32 `json:"pid"`
+	Comm string `json:"comm"`
 }
 
 // ProcHash is the SHA-256 of a newly-observed process's executable.

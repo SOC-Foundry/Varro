@@ -57,6 +57,8 @@ type Collector struct {
 	cloud          *model.CloudInfo // detected once at first sample
 	cloudChecked   bool
 
+	execTracer execDrainer // eBPF exec sensor, nil when unavailable
+
 	lastPosture     []model.PostureCheck
 	lastPostureScan time.Time
 	lastHealth      model.HealthStatus
@@ -68,6 +70,16 @@ type Collector struct {
 	authLogPath   string
 	authLogOffset int64
 }
+
+// execDrainer is the eBPF exec sensor the agent injects (kept as an interface
+// so collect doesn't hard-depend on the ebpf package's concrete type).
+type execDrainer interface {
+	Drain() []model.ExecSample
+}
+
+// SetExecTracer attaches the kernel exec sensor; drained events ride along on
+// each snapshot.
+func (c *Collector) SetExecTracer(t execDrainer) { c.execTracer = t }
 
 // New builds a Collector reporting as the given agent ID (see the agent
 // package for how identity is derived and persisted).
@@ -137,6 +149,19 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.sampleFIM(snap)
 	c.sampleContainers(ctx, snap)
 	c.sampleFlows(snap)
+	if c.execTracer != nil {
+		snap.EBPF = true
+		// Distinct comms since last sample, capped. Catches short-lived
+		// execs (curl, nc, sh one-liners) the periodic scan never sees.
+		seen := map[string]bool{}
+		for _, e := range c.execTracer.Drain() {
+			if seen[e.Comm] || len(snap.Execs) >= 100 {
+				continue
+			}
+			seen[e.Comm] = true
+			snap.Execs = append(snap.Execs, e)
+		}
+	}
 	snap.Inventory = c.pendingInv
 
 	return snap, nil

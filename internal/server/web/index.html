@@ -204,6 +204,10 @@
       <div class="card"><h3>Events</h3>
         <div id="events" style="font-family:var(--mono);font-size:12px;max-height:280px;overflow-y:auto"></div>
       </div>
+      <div class="card wide" id="execCard" style="display:none"><h3>Exec activity <span class="now" id="execNow"></span></h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:6px">Kernel eBPF sensor — captures every process exec, including short-lived ones the periodic scan misses.</p>
+        <div id="execList" style="font-family:var(--mono); font-size:12.5px; max-height:160px; overflow-y:auto"></div>
+      </div>
       <div class="card wide"><h3>Top Processes</h3>
         <div style="overflow-x:auto"><table>
           <thead><tr><th class="num">PID</th><th>Name</th><th>User</th><th class="num">CPU %</th><th class="num">Mem %</th><th class="num">RSS</th><th>Command</th><th></th></tr></thead>
@@ -537,6 +541,12 @@ function renderDetail(snap, hist) {
     `${esc(snap.host.platform)} ${esc(snap.host.platform_version)} · ${esc(snap.host.arch)} · ` +
     `${snap.cpu.cores} cores · up ${fmtUptime(snap.host.uptime_seconds)} · ` +
     `load ${snap.cpu.load1.toFixed(2)} ${snap.cpu.load5.toFixed(2)} ${snap.cpu.load15.toFixed(2)}${cloudStr}`;
+
+  const execs = snap.execs ?? [];
+  $("execCard").style.display = snap.ebpf ? "block" : "none";
+  $("execNow").textContent = snap.ebpf ? `eBPF active · ${execs.length} distinct since last sample` : "";
+  $("execList").innerHTML = execs.map(e => `${esc(e.comm)} <span style="color:var(--dim)">pid ${e.pid}</span>`).join("  ·  ")
+    || '<span style="color:var(--dim)">no execs captured in the last interval</span>';
 
   const ctrs = snap.containers ?? [];
   $("containerCard").style.display = ctrs.length ? "block" : "none";
