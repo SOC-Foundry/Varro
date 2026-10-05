@@ -406,7 +406,22 @@ const fmtUptime = s => {
   const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
   return (d ? d+"d " : "") + h + "h " + m + "m";
 };
-const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc = s => (s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// Delegated click handling for action buttons. Values travel in data-*
+// attributes (read via dataset) and never enter a JS-parsing context, so
+// attacker-controlled names/ids/emails can't inject script.
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-act]");
+  if (!b) return;
+  const d = b.dataset;
+  switch (d.act) {
+    case "kill":          killProc(parseInt(d.pid, 10), d.name); break;
+    case "role":          setRole(d.email, d.role); break;
+    case "removeMember":  removeMember(d.email); break;
+    case "openEndpoint":  selected = d.id; showTopo(false); refreshDetail(); break;
+  }
+});
 
 /* ---- minimal line chart on canvas ---- */
 function drawChart(canvas, series, opts = {}) {
@@ -644,7 +659,7 @@ function renderDetail(snap, hist) {
     `<tr><td class="num">${p.pid}</td><td>${esc(p.name)}</td><td>${esc(p.username)}</td>
      <td class="num">${p.cpu_percent.toFixed(1)}</td><td class="num">${p.mem_percent.toFixed(1)}</td>
      <td class="num">${fmtBytes(p.rss)}</td><td class="cmd">${esc(p.cmdline)}</td>
-     <td>${canRespond ? `<button class="abtn danger" onclick="killProc(${p.pid}, '${esc(p.name)}')">kill</button>` : ""}</td></tr>`).join("");
+     <td>${canRespond ? `<button class="abtn danger" data-act="kill" data-pid="${p.pid}" data-name="${esc(p.name)}">kill</button>` : ""}</td></tr>`).join("");
 }
 
 /* ---- range buttons + polling ---- */
@@ -790,11 +805,11 @@ async function loadAdminOrg() {
     ]);
     $("memberRows").innerHTML = members.map(m => {
       const toggle = m.role === "admin"
-        ? `<button class="abtn danger" onclick="setRole('${esc(m.email)}','member')">make member</button>`
-        : `<button class="abtn danger" style="color:var(--accent)" onclick="setRole('${esc(m.email)}','admin')">make admin</button>`;
+        ? `<button class="abtn danger" data-act="role" data-role="member" data-email="${esc(m.email)}">make member</button>`
+        : `<button class="abtn danger" style="color:var(--accent)" data-act="role" data-role="admin" data-email="${esc(m.email)}">make admin</button>`;
       return `<tr><td>${esc(m.email)}</td><td>${esc(m.role)}</td>
        <td style="white-space:nowrap">${toggle}
-       <button class="abtn danger" onclick="removeMember('${esc(m.email)}')">remove</button></td></tr>`;
+       <button class="abtn danger" data-act="removeMember" data-email="${esc(m.email)}">remove</button></td></tr>`;
     }).join("") || '<tr><td colspan="3" style="color:var(--dim)">no members yet</td></tr>';
     $("tokenRows").innerHTML = tokens.map(t =>
       `<tr><td>${esc(t.name || "(unlabeled)")}</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>`
@@ -1161,7 +1176,7 @@ function renderTopoInfo() {
         const what = e.internal ? (e.processes ?? []).map(p => `${esc(p.process)}:${p.port}`).join(", ") : `${e.count} conns`;
         return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${dir} <span style="color:var(--dim)">${what}</span></div>`;
       }).join("") +
-      `<button class="abtn" style="margin-top:10px" onclick="selected='${esc(n.id)}'; showTopo(false); refreshDetail()">Open endpoint →</button>`;
+      `<button class="abtn" style="margin-top:10px" data-act="openEndpoint" data-id="${esc(n.id)}">Open endpoint →</button>`;
     return;
   }
   const e = topoSel.e;

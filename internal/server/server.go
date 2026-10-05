@@ -207,6 +207,24 @@ func (s *Server) masterAuthorized(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(bearer(r)), []byte(s.cfg.Token)) == 1
 }
 
+// validAgentID constrains agent IDs to a safe charset. Besides defense in
+// depth against injection wherever IDs are rendered, it keeps IDs usable in
+// URLs and logs. Real IDs are machine-ids, DMI UUIDs, or hostnames — all
+// within this set.
+func validAgentID(id string) bool {
+	if len(id) == 0 || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '.' || c == ':' || c == '_' || c == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func hashToken(tok string) string {
 	sum := sha256.Sum256([]byte(tok))
 	return hex.EncodeToString(sum[:])
@@ -298,6 +316,10 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.AgentID == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if !validAgentID(req.AgentID) {
+		http.Error(w, "invalid agent_id: allowed characters are letters, digits, and .:_-", http.StatusBadRequest)
 		return
 	}
 	existing, _, err := s.store.AgentToken(r.Context(), req.AgentID)
