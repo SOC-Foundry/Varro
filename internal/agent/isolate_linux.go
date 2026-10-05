@@ -5,25 +5,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/url"
 	"os/exec"
 	"strings"
 )
-
-// collectorIPs resolves the collector hostname to IPs so isolation can keep
-// the agent->collector channel open while dropping everything else.
-func collectorIPs(serverURL string) ([]string, error) {
-	u, err := url.Parse(serverURL)
-	if err != nil {
-		return nil, err
-	}
-	ips, err := net.LookupHost(u.Hostname())
-	if err != nil {
-		return nil, err
-	}
-	return ips, nil
-}
 
 // isolateHost drops all traffic except loopback, DNS, established flows, and
 // the collector. It prefers nftables (a dedicated "varro_isolate" table for

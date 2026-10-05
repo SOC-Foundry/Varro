@@ -1,0 +1,17 @@
+name: isolation-validate
+
+# Validates the macOS host-isolation pf ruleset against the real pf parser on a
+# macOS runner. Uses "pfctl -n" (parse only) so it never alters the runner's
+# networking. Trigger manually.
+on: workflow_dispatch
+
+jobs:
+  pf-ruleset:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      - name: Validate pf ruleset syntax (parse-only, under sudo)
+        run: sudo env "PATH=$PATH" go test -run TestPfRulesetParses -v ./internal/agent/

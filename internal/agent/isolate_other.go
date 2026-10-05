@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin && !windows
 
 package agent
 
@@ -8,9 +8,9 @@ import (
 	"runtime"
 )
 
-// isolateHost / unisolateHost are implemented only on Linux for now. macOS
-// (pf) and Windows (netsh advfirewall) are the natural next targets; until
-// then the action fails cleanly rather than pretending to contain the host.
+// isolateHost / unisolateHost are implemented natively on Linux (nftables/
+// iptables), macOS (pf), and Windows (netsh advfirewall). On any other GOOS the
+// action fails cleanly rather than pretending to contain the host.
 func isolateHost(ctx context.Context, serverURL string) error {
 	return fmt.Errorf("host isolation is not yet implemented on %s", runtime.GOOS)
 }
