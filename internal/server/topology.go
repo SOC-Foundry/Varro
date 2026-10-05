@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sort"
@@ -193,6 +195,55 @@ func (s *Server) handleTopologyReset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"org_id": org.ID, "removed": n})
 }
 
+// nodeRisk fuses signals into a single node rating for the map: active
+// threat/detection is critical; an internet-exposed listener combined with
+// open vulnerabilities or failing posture is high (the CNAPP "exposed +
+// unpatched" case).
+func (s *Server) nodeRisk(ctx context.Context, ep model.EndpointSummary, snap *model.Snapshot, hot map[string]bool) (string, []string) {
+	var reasons []string
+	if hot[model.EventThreatMatch] || hot[model.EventMalwareMatch] {
+		reasons = append(reasons, "active threat-intel/malware match")
+	}
+	if hot[model.EventDetection] {
+		reasons = append(reasons, "behavioral detection fired")
+	}
+	if len(reasons) > 0 {
+		return "critical", reasons
+	}
+
+	exposed := false
+	if snap != nil {
+		for _, lp := range snap.Security.ListeningPorts {
+			if lp.Address == "0.0.0.0" || lp.Address == "::" || lp.Address == "" {
+				exposed = true
+				break
+			}
+		}
+	}
+	vulns, _ := s.store.VulnCount(ctx, ep.ID)
+	postureFails := 0
+	if snap != nil {
+		for _, p := range snap.Posture {
+			if p.Status == model.PostureFail {
+				postureFails++
+			}
+		}
+	}
+	if exposed && (vulns > 0 || postureFails > 0) {
+		if vulns > 0 {
+			reasons = append(reasons, fmt.Sprintf("internet-exposed listener + %d known vulns", vulns))
+		}
+		if postureFails > 0 {
+			reasons = append(reasons, fmt.Sprintf("internet-exposed listener + %d posture failures", postureFails))
+		}
+		return "high", reasons
+	}
+	if vulns > 10 || postureFails > 2 {
+		return "warn", []string{fmt.Sprintf("%d vulns, %d posture failures", vulns, postureFails)}
+	}
+	return "", nil
+}
+
 // handleTopology returns the org-scoped communication graph: fleet nodes, an
 // "internet" node, internal edges from the edges table, and per-endpoint
 // external aggregates from the latest snapshots.
@@ -214,11 +265,9 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	nodes := make([]model.TopoNode, 0, len(eps)+1)
 	inScope := map[string]bool{}
 	fleetIPs := map[string]bool{}
 	for _, ep := range eps {
-		nodes = append(nodes, model.TopoNode{ID: ep.ID, Hostname: ep.Hostname, Online: ep.Online})
 		inScope[ep.ID] = true
 	}
 
@@ -292,6 +341,38 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Recent high-signal events per endpoint → "critical" node risk.
+	hotByEndpoint := map[string]map[string]bool{}
+	if evs, err := s.store.Events(r.Context(), "", scope, 500); err == nil {
+		for _, ev := range evs {
+			switch ev.Type {
+			case model.EventDetection, model.EventThreatMatch, model.EventMalwareMatch:
+				if hotByEndpoint[ev.EndpointID] == nil {
+					hotByEndpoint[ev.EndpointID] = map[string]bool{}
+				}
+				hotByEndpoint[ev.EndpointID][ev.Type] = true
+			}
+		}
+	}
+
+	// Build enriched fleet nodes.
+	nodes := make([]model.TopoNode, 0, len(eps)+1)
+	for _, ep := range eps {
+		n := model.TopoNode{ID: ep.ID, Hostname: ep.Hostname, Online: ep.Online, Platform: ep.Platform}
+		snap := snaps[ep.ID]
+		if snap != nil {
+			n.Containers = len(snap.Containers)
+			if c := snap.Host.Cloud; c != nil {
+				n.Group = c.Provider + "/" + c.AccountID
+				if c.Region != "" {
+					n.Group += "/" + c.Region
+				}
+			}
+		}
+		n.Risk, n.RiskReasons = s.nodeRisk(r.Context(), ep, snap, hotByEndpoint[ep.ID])
+		nodes = append(nodes, n)
+	}
+
 	if len(ext) > 0 {
 		nodes = append(nodes, model.TopoNode{ID: "internet", Hostname: "internet", Online: true})
 		for id, a := range ext {
@@ -304,13 +385,27 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				rcs = append(rcs, rc{ip, n})
 			}
 			sort.Slice(rcs, func(i, j int) bool { return rcs[i].n > rcs[j].n })
-			var remotes, names []string
+			var remotes, names, geo []string
+			malicious := false
 			for i := 0; i < len(rcs) && i < 5; i++ {
 				remotes = append(remotes, rcs[i].ip)
 				names = append(names, s.rdns.name(rcs[i].ip))
+				if s.geo != nil {
+					geo = append(geo, s.geo.label(rcs[i].ip))
+				}
+			}
+			// Flag the edge if any remote (not just the top 5) is known-bad.
+			if s.ti != nil {
+				for ip := range a.remotes {
+					if s.ti.isBad(ip) {
+						malicious = true
+						break
+					}
+				}
 			}
 			edges = append(edges, model.TopoEdge{
-				Src: id, Dst: "internet", Count: a.count, Bytes: a.bytes, Remotes: remotes, RemoteNames: names,
+				Src: id, Dst: "internet", Count: a.count, Bytes: a.bytes,
+				Remotes: remotes, RemoteNames: names, RemoteGeo: geo, Malicious: malicious,
 			})
 		}
 	}

@@ -55,6 +55,7 @@ type Config struct {
 	ThreatIntel bool     // match connection remotes against known-bad IP feeds
 	ThreatFeeds []string // override the default IP indicator feeds
 	HashFeeds   []string // override the default malware-hash feeds
+	GeoIP       bool     // enrich external topology remotes with country/ASN (third-party lookups)
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
@@ -77,6 +78,7 @@ type Server struct {
 	rdns      *rdnsCache
 	ti        *threatIntel
 	det       *detector
+	geo       *geoCache // nil unless GeoIP enabled
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
@@ -84,6 +86,9 @@ func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(), det: newDetector()}
 	if cfg.ThreatIntel {
 		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds)
+	}
+	if cfg.GeoIP {
+		s.geo = newGeoCache("")
 	}
 	return s
 }

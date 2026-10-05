@@ -234,6 +234,8 @@ func runServer(ctx context.Context, args []string) error {
 		"comma-separated IP indicator feed URLs (default: Feodo Tracker C2 list)")
 	hashFeeds := fs.String("threat-hash-feeds", "",
 		"comma-separated malware-hash feed URLs (default: MalwareBazaar recent sha256)")
+	geoip := fs.Bool("geoip", false,
+		"enrich external topology remotes with country/ASN (sends observed remote IPs to a third-party lookup service)")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
 		"push the desired agent version so agents self-upgrade from GitHub releases")
 	desiredVersion := fs.String("agent-desired-version", "",
@@ -315,6 +317,7 @@ func runServer(ctx context.Context, args []string) error {
 		ThreatIntel:  *threatIntel,
 		ThreatFeeds:  splitNonEmpty(*threatFeeds),
 		HashFeeds:    splitNonEmpty(*hashFeeds),
+		GeoIP:        *geoip,
 		AgentDesiredVersion: func() string {
 			if !*autoUpgrade {
 				return ""

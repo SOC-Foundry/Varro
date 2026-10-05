@@ -234,6 +234,13 @@ type TopoNode struct {
 	ID       string `json:"id"`
 	Hostname string `json:"hostname"`
 	Online   bool   `json:"online"`
+	// Risk: "" (ok), "warn", "high" (exposed + unpatched), "critical" (active
+	// detection/threat). RiskReasons explains the rating.
+	Risk        string   `json:"risk,omitempty"`
+	RiskReasons []string `json:"risk_reasons,omitempty"`
+	Group       string   `json:"group,omitempty"`      // cloud acct/region grouping
+	Containers  int      `json:"containers,omitempty"` // running container count
+	Platform    string   `json:"platform,omitempty"`
 }
 
 type EdgeProcess struct {
@@ -250,8 +257,10 @@ type TopoEdge struct {
 	Bytes     uint64        `json:"bytes,omitempty"` // external: total conntrack bytes to these remotes
 	FirstSeen time.Time     `json:"first_seen,omitempty"`
 	LastSeen  time.Time     `json:"last_seen,omitempty"`
-	Remotes   []string      `json:"remotes,omitempty"`        // external edges: sample remote IPs
-	RemoteNames []string    `json:"remote_names,omitempty"`   // reverse-DNS of Remotes, same order ("" when unresolved)
+	Remotes     []string `json:"remotes,omitempty"`      // external edges: sample remote IPs
+	RemoteNames []string `json:"remote_names,omitempty"` // reverse-DNS of Remotes, same order ("" when unresolved)
+	RemoteGeo   []string `json:"remote_geo,omitempty"`   // "country/ASN" of Remotes, same order (when GeoIP enabled)
+	Malicious   bool     `json:"malicious,omitempty"`    // a remote matches the threat-intel feed
 }
 
 type Event struct {
