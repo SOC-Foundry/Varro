@@ -64,6 +64,8 @@ type Config struct {
 	// that release from ReleaseRepo and replace themselves. Empty disables.
 	AgentDesiredVersion string
 	ReleaseRepo         string
+
+	Backup BackupConfig
 }
 
 type Server struct {
@@ -151,6 +153,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	if s.ti != nil {
 		go s.threatRefreshLoop(ctx)
+	}
+	if s.backupEnabled() {
+		go s.backupLoop(ctx)
 	}
 	go func() {
 		<-ctx.Done()

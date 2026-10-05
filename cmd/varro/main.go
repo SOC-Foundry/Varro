@@ -240,6 +240,9 @@ func runServer(ctx context.Context, args []string) error {
 		"pin agents to a specific released version (default: this server's version)")
 	releaseRepo := fs.String("release-repo", "SOC-Foundry/Varro",
 		"GitHub repo agents download release binaries from")
+	backupGCS := fs.String("backup-gcs", os.Getenv("VARRO_BACKUP_GCS"),
+		"gs://bucket/prefix for daily off-VM database backups (SQLite only)")
+	backupInterval := fs.Duration("backup-interval", 24*time.Hour, "database backup cadence")
 	fs.Parse(args)
 	if *token == "" {
 		return fmt.Errorf("server requires --token (or VARRO_TOKEN)")
@@ -322,6 +325,7 @@ func runServer(ctx context.Context, args []string) error {
 			return version
 		}(),
 		ReleaseRepo: *releaseRepo,
+		Backup:      server.BackupConfig{GCS: *backupGCS, Interval: *backupInterval},
 	}, st, log)
 	return srv.Run(ctx)
 }

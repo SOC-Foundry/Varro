@@ -233,6 +233,20 @@ CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
 	return err
 }
 
+// BackupTo writes a consistent snapshot of the database to path using
+// SQLite's VACUUM INTO (safe on a live WAL database). SQLite only — Postgres
+// deployments should use the database's own backup tooling (e.g. Cloud SQL).
+func (s *Store) BackupTo(path string) error {
+	if s.db.IsPostgres() {
+		return fmt.Errorf("online backup is SQLite-only; use managed Postgres backups")
+	}
+	// path is operator-controlled (a temp file), but escape quotes anyway;
+	// VACUUM INTO takes a string literal, not a bound parameter.
+	lit := strings.ReplaceAll(path, "'", "''")
+	_, err := s.db.Exec("VACUUM INTO '" + lit + "'")
+	return err
+}
+
 // orgFilter builds "AND col IN (...)" for an org scope; nil means all orgs
 // (no filtering).
 func orgFilter(col string, orgIDs []string) (string, []any) {
