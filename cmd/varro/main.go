@@ -198,7 +198,7 @@ func runServer(ctx context.Context, args []string) error {
 	rulesPath := fs.String("rules", "", "JSON file of alert rules (default: built-in rules)")
 	webhookURL := fs.String("webhook-url", envOr("VARRO_WEBHOOK_URL", ""), "generic JSON webhook for notifications")
 	slackURL := fs.String("slack-webhook-url", envOr("VARRO_SLACK_WEBHOOK_URL", ""), "Slack incoming-webhook URL")
-	notifyEvents := fs.String("notify-events", "threat_match,malware_match,autostart_change,nic_new,listen_new,suid_change,identity_change",
+	notifyEvents := fs.String("notify-events", "detection,threat_match,malware_match,autostart_change,nic_new,listen_new,suid_change,identity_change",
 		"comma-separated event types forwarded to notifiers (empty to disable)")
 	smtpHost := fs.String("smtp-host", "", "SMTP host for email notifications")
 	smtpPort := fs.Int("smtp-port", 587, "SMTP port")

@@ -74,11 +74,12 @@ type Server struct {
 	listeners *listenerIndex
 	rdns      *rdnsCache
 	ti        *threatIntel
+	det       *detector
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	s := &Server{cfg: cfg, store: st, log: log,
-		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache()}
+		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(), det: newDetector()}
 	if cfg.ThreatIntel {
 		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds)
 	}
@@ -260,6 +261,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 		s.correlateEdges(r, orgID, snap)
 		s.checkThreats(r.Context(), orgID, snap)
+		s.detect(r.Context(), orgID, snap)
 	}
 	writeJSON(w, map[string]int{"accepted": len(snaps)})
 }

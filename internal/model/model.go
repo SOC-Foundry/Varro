@@ -168,6 +168,7 @@ const (
 	EventMalwareMatch    = "malware_match"     // process binary matched a known-malware hash
 	EventContainerNew    = "container_new"     // container started
 	EventContainerGone   = "container_gone"    // container stopped
+	EventDetection       = "detection"         // behavioral detection fired
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes
