@@ -452,6 +452,9 @@ document.addEventListener("click", ev => {
     case "openEndpoint":  selected = d.id; showTopo(false); refreshDetail(); break;
     case "revokeApiToken": revokeApiToken(d.id, d.name); break;
     case "revokeOrgToken": revokeOrgToken(d.org, d.id, d.name); break;
+    case "alertAck":      alertAck(d.id); break;
+    case "alertAssign":   alertAssign(d.id); break;
+    case "alertResolve":  alertResolve(d.id); break;
   }
 });
 
@@ -543,12 +546,39 @@ async function refreshDetail() {
 function renderAlerts(alerts) {
   const card = $("alertsCard");
   card.style.display = alerts.length ? "block" : "none";
-  $("alerts").innerHTML = alerts.map(a =>
-    `<div class="alert"><span class="chip firing">FIRING</span>
+  $("alerts").innerHTML = alerts.map(a => {
+    const meta = [];
+    if (a.ack_by) meta.push(`ack'd by ${esc(a.ack_by)}`);
+    if (a.assignee) meta.push(`assigned: ${esc(a.assignee)}`);
+    const metaStr = meta.length
+      ? ` · <span style="color:var(--accent)">${meta.join(" · ")}</span>` : "";
+    const btns = canRespond ? `<span style="float:right; white-space:nowrap">
+        ${a.ack_by ? "" : `<button class="abtn" data-act="alertAck" data-id="${a.id}">ack</button>`}
+        <button class="abtn" data-act="alertAssign" data-id="${a.id}">assign</button>
+        <button class="abtn danger" data-act="alertResolve" data-id="${a.id}">resolve</button>
+      </span>` : "";
+    return `<div class="alert">${btns}<span class="chip firing">FIRING</span>
      <span class="chip type">${esc(a.rule)}</span>
      <b>${esc(a.hostname)}</b>
-     <span style="color:var(--dim)">${esc(a.message)} · since ${new Date(a.started_at).toLocaleTimeString()}</span></div>`
-  ).join("");
+     <span style="color:var(--dim)">${esc(a.message)} · since ${new Date(a.started_at).toLocaleTimeString()}</span>${metaStr}</div>`;
+  }).join("");
+}
+
+async function alertAck(id) {
+  try { await postJSON(`/api/v1/alerts/${encodeURIComponent(id)}/ack`, {}); refreshDetail(); }
+  catch (e) { oops(e); }
+}
+async function alertAssign(id) {
+  const who = prompt("Assign alert to (email; blank to unassign):");
+  if (who === null) return;
+  try { await postJSON(`/api/v1/alerts/${encodeURIComponent(id)}/assign`, {assignee: who.trim()}); refreshDetail(); }
+  catch (e) { oops(e); }
+}
+async function alertResolve(id) {
+  const note = prompt("Resolve this alert — note (optional):");
+  if (note === null) return;
+  try { await postJSON(`/api/v1/alerts/${encodeURIComponent(id)}/resolve`, {note: note || ""}); refreshDetail(); }
+  catch (e) { oops(e); }
 }
 
 function renderVulns(v) {

@@ -237,6 +237,10 @@ CREATE TABLE IF NOT EXISTS seen_domains (
 		`ALTER TABLE samples ADD COLUMN posture_fails INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN pending_updates INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE org_tokens ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE alerts ADD COLUMN ack_by TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE alerts ADD COLUMN ack_at INTEGER`,
+		`ALTER TABLE alerts ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE alerts ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 	} {
 		// Route through the dialect rewriter so INTEGER->BIGINT etc. apply on PG.
 		if _, err := s.db.Exec(s.db.ddl(stmt)); err != nil &&
@@ -740,7 +744,8 @@ func (s *Store) Alerts(ctx context.Context, state string, orgIDs []string, limit
 		limit = 100
 	}
 	filter, args := orgFilter("org_id", orgIDs)
-	q := `SELECT id, org_id, rule, endpoint_id, hostname, state, message, value, started_at, resolved_at
+	q := `SELECT id, org_id, rule, endpoint_id, hostname, state, message, value, started_at, resolved_at,
+       ack_by, ack_at, assignee, note
 FROM alerts WHERE 1=1` + filter
 	if state != "" {
 		q += ` AND state = ?`
@@ -759,9 +764,9 @@ FROM alerts WHERE 1=1` + filter
 	for rows.Next() {
 		var a model.Alert
 		var started int64
-		var resolved sql.NullInt64
+		var resolved, ackAt sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.OrgID, &a.Rule, &a.EndpointID, &a.Hostname, &a.State,
-			&a.Message, &a.Value, &started, &resolved); err != nil {
+			&a.Message, &a.Value, &started, &resolved, &a.AckBy, &ackAt, &a.Assignee, &a.Note); err != nil {
 			return nil, err
 		}
 		a.StartedAt = time.Unix(started, 0).UTC()
@@ -769,9 +774,60 @@ FROM alerts WHERE 1=1` + filter
 			t := time.Unix(resolved.Int64, 0).UTC()
 			a.ResolvedAt = &t
 		}
+		if ackAt.Valid {
+			t := time.Unix(ackAt.Int64, 0).UTC()
+			a.AckAt = &t
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// AlertOrg returns an alert's org and current state (for authorization).
+// Returns ("", "", nil) if the alert doesn't exist.
+func (s *Store) AlertOrg(ctx context.Context, id int64) (orgID, state string, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT org_id, state FROM alerts WHERE id = ?`, id).Scan(&orgID, &state)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	return orgID, state, err
+}
+
+// AckAlert marks a firing alert acknowledged by `who`. Returns whether a firing
+// alert was updated (false if it was already resolved or gone).
+func (s *Store) AckAlert(ctx context.Context, id int64, who string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE alerts SET ack_by = ?, ack_at = ? WHERE id = ? AND state = 'firing'`,
+		who, time.Now().Unix(), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// AssignAlert sets an alert's assignee (empty string unassigns).
+func (s *Store) AssignAlert(ctx context.Context, id int64, assignee string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE alerts SET assignee = ? WHERE id = ?`, assignee, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ResolveAlertManual resolves a firing alert with an operator note. Returns
+// whether a firing alert was resolved.
+func (s *Store) ResolveAlertManual(ctx context.Context, id int64, note string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE alerts SET state = 'resolved', resolved_at = ?, note = ? WHERE id = ? AND state = 'firing'`,
+		time.Now().Unix(), note, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ---- statistics for the alert engine ----

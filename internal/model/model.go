@@ -309,6 +309,11 @@ type Alert struct {
 	Value      float64    `json:"value"`
 	StartedAt  time.Time  `json:"started_at"`
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	// Incident lifecycle (operator workflow on top of auto fire/resolve).
+	AckBy    string     `json:"ack_by,omitempty"`   // who acknowledged it
+	AckAt    *time.Time `json:"ack_at,omitempty"`   // when acknowledged
+	Assignee string     `json:"assignee,omitempty"` // owner handling it
+	Note     string     `json:"note,omitempty"`     // resolution / operator note
 }
 
 // HostInfo describes the endpoint itself; it changes rarely.
