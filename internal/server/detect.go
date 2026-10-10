@@ -25,6 +25,16 @@ var (
 	execStormMin = 80 // distinct execs in one ~10s sample
 )
 
+// mitreTechnique maps each behavioral rule to its MITRE ATT&CK technique, so
+// detections carry the identifier SOC analysts triage and report by.
+var mitreTechnique = map[string]string{
+	"reverse_shell":  "T1059 Command and Scripting Interpreter",
+	"shell_listener": "T1059 Command and Scripting Interpreter",
+	"crypto_miner":   "T1496 Resource Hijacking",
+	"recon_tool":     "T1046 Network Service Discovery",
+	"exec_storm":     "T1059 Command and Scripting Interpreter",
+}
+
 func set(items ...string) map[string]bool {
 	m := make(map[string]bool, len(items))
 	for _, i := range items {
@@ -70,7 +80,11 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 		if !s.det.should(snap.AgentID, rule, key) {
 			return
 		}
-		full := fmt.Sprintf("[%s] %s: %s", severity, rule, msg)
+		full := fmt.Sprintf("[%s] %s", severity, rule)
+		if tech := mitreTechnique[rule]; tech != "" {
+			full += " (ATT&CK " + tech + ")"
+		}
+		full += ": " + msg
 		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDetection, full)
 		s.log.Warn("behavioral detection", "rule", rule, "severity", severity,
 			"endpoint", snap.Hostname, "detail", msg)
