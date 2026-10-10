@@ -157,16 +157,68 @@ func (s *Store) OrgIDForDomain(ctx context.Context, domain string) (string, erro
 // ---- org enrollment tokens ----
 
 // CreateOrgToken mints an enrollment token for an org, storing only its hash.
-// The plaintext is returned exactly once.
-func (s *Store) CreateOrgToken(ctx context.Context, orgID, name string, hash func(string) string) (string, error) {
-	token, err := randomID(32)
+// It returns the plaintext token (shown exactly once) and a short public id
+// used to list and revoke it.
+func (s *Store) CreateOrgToken(ctx context.Context, orgID, name string, hash func(string) string) (token, id string, err error) {
+	token, err = randomID(32)
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	id, err = randomID(6)
+	if err != nil {
+		return "", "", err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO org_tokens (token_hash, org_id, name, created_at) VALUES (?, ?, ?, ?)`,
-		hash(token), orgID, name, time.Now().Unix())
-	return token, err
+		`INSERT INTO org_tokens (token_hash, id, org_id, name, created_at) VALUES (?, ?, ?, ?, ?)`,
+		hash(token), id, orgID, name, time.Now().Unix())
+	return token, id, err
+}
+
+// DeleteOrgToken revokes a single enrollment token by its public id, scoped to
+// its org. Returns whether a row was removed. Any agent still holding the
+// plaintext can no longer enroll with it; already-enrolled agents keep their
+// own per-agent tokens and are unaffected.
+func (s *Store) DeleteOrgToken(ctx context.Context, orgID, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM org_tokens WHERE id = ? AND org_id = ?`, id, orgID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// backfillOrgTokenIDs assigns a public id to any enrollment token minted before
+// per-token revoke existed, so each becomes individually targetable.
+func (s *Store) backfillOrgTokenIDs() error {
+	rows, err := s.db.QueryContext(context.Background(),
+		`SELECT token_hash FROM org_tokens WHERE id = '' OR id IS NULL`)
+	if err != nil {
+		return err
+	}
+	var hashes []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			rows.Close()
+			return err
+		}
+		hashes = append(hashes, h)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, h := range hashes {
+		id, err := randomID(6)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`UPDATE org_tokens SET id = ? WHERE token_hash = ?`, id, h); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // OrgForTokenHash returns the org a hashed enrollment token belongs to, or "".
@@ -271,7 +323,7 @@ func (s *Store) OrgRole(ctx context.Context, orgID, email string) (string, error
 // OrgTokenInfos lists an org's enrollment tokens (labels only, never values).
 func (s *Store) OrgTokenInfos(ctx context.Context, orgID string) ([]model.OrgTokenInfo, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT name, created_at FROM org_tokens WHERE org_id = ? ORDER BY created_at DESC`, orgID)
+		`SELECT id, name, created_at FROM org_tokens WHERE org_id = ? ORDER BY created_at DESC`, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +332,7 @@ func (s *Store) OrgTokenInfos(ctx context.Context, orgID string) ([]model.OrgTok
 	for rows.Next() {
 		var t model.OrgTokenInfo
 		var created int64
-		if err := rows.Scan(&t.Name, &created); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &created); err != nil {
 			return nil, err
 		}
 		t.CreatedAt = time.Unix(created, 0).UTC()

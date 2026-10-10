@@ -319,7 +319,7 @@
         </div>
       </div>
       <div class="card"><h3>Enrollment tokens</h3>
-        <table><thead><tr><th>Label</th><th>Created</th></tr></thead><tbody id="tokenRows"></tbody></table>
+        <table><thead><tr><th>Label</th><th>Created</th><th></th></tr></thead><tbody id="tokenRows"></tbody></table>
         <div style="display:flex; gap:8px; margin-top:10px">
           <input id="tokenLabel" placeholder="label (e.g. hq-servers)" style="flex:1; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px">
           <button id="mintBtn" class="abtn">Mint install token</button>
@@ -451,6 +451,7 @@ document.addEventListener("click", ev => {
     case "removeMember":  removeMember(d.email); break;
     case "openEndpoint":  selected = d.id; showTopo(false); refreshDetail(); break;
     case "revokeApiToken": revokeApiToken(d.id, d.name); break;
+    case "revokeOrgToken": revokeOrgToken(d.org, d.id, d.name); break;
   }
 });
 
@@ -843,8 +844,9 @@ async function loadAdminOrg() {
        <button class="abtn danger" data-act="removeMember" data-email="${esc(m.email)}">remove</button></td></tr>`;
     }).join("") || '<tr><td colspan="3" style="color:var(--dim)">no members yet</td></tr>';
     $("tokenRows").innerHTML = tokens.map(t =>
-      `<tr><td>${esc(t.name || "(unlabeled)")}</td><td>${new Date(t.created_at).toLocaleString()}</td></tr>`
-    ).join("") || '<tr><td colspan="2" style="color:var(--dim)">no tokens minted yet</td></tr>';
+      `<tr><td>${esc(t.name || "(unlabeled)")}</td><td>${new Date(t.created_at).toLocaleString()}</td>
+       <td><button class="abtn danger" data-act="revokeOrgToken" data-org="${esc(org)}" data-id="${esc(t.id)}" data-name="${esc(t.name)}">revoke</button></td></tr>`
+    ).join("") || '<tr><td colspan="3" style="color:var(--dim)">no tokens minted yet</td></tr>';
     try { // instance admins only; populate the auto-join domain field
       const all = await getJSON("/api/v1/orgs");
       const cur = all.find(o => o.id === org);
@@ -895,6 +897,14 @@ async function removeMember(email) {
   if (!confirm(`Remove ${email} from this org?`)) return;
   try {
     await del(`/api/v1/orgs/${encodeURIComponent($("adminOrgSelect").value)}/members/${encodeURIComponent(email)}`);
+    loadAdminOrg();
+  } catch (e) { oops(e); }
+}
+
+async function revokeOrgToken(org, id, name) {
+  if (!confirm(`Revoke enrollment token "${name || id}"? New installs using it will fail; already-enrolled agents keep working.`)) return;
+  try {
+    await del(`/api/v1/orgs/${encodeURIComponent(org)}/tokens/${encodeURIComponent(id)}`);
     loadAdminOrg();
   } catch (e) { oops(e); }
 }

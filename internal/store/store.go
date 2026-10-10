@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS orgs (
 );
 CREATE TABLE IF NOT EXISTS org_tokens (
 	token_hash TEXT PRIMARY KEY,
+	id         TEXT NOT NULL DEFAULT '',
 	org_id     TEXT NOT NULL REFERENCES orgs(id),
 	name       TEXT NOT NULL DEFAULT '',
 	created_at INTEGER NOT NULL
@@ -229,12 +230,19 @@ CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
 		`ALTER TABLE orgs ADD COLUMN fim_paths TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE samples ADD COLUMN posture_fails INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE samples ADD COLUMN pending_updates INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE org_tokens ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") &&
 			!strings.Contains(err.Error(), "already exists") {
 			return err
 		}
+	}
+	// Backfill public ids for enrollment tokens minted before per-token revoke
+	// existed, so each becomes individually targetable. Collect first (the
+	// SQLite pool is single-connection), then update.
+	if err := s.backfillOrgTokenIDs(); err != nil {
+		return err
 	}
 	// The default org always exists; legacy agents and master-token ingest
 	// land here.

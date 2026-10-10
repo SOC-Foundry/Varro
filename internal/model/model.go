@@ -444,6 +444,7 @@ type OrgMember struct {
 
 // OrgTokenInfo describes an enrollment token without revealing it.
 type OrgTokenInfo struct {
+	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 }

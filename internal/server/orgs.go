@@ -368,14 +368,39 @@ func (s *Server) handleOrgToken(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) // name is optional
 
-	token, err := s.store.CreateOrgToken(r.Context(), org.ID, req.Name, hashToken)
+	token, id, err := s.store.CreateOrgToken(r.Context(), org.ID, req.Name, hashToken)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.log.Info("org enrollment token minted", "org", org.ID, "token_name", req.Name)
+	s.log.Info("org enrollment token minted", "org", org.ID, "token_name", req.Name, "token_id", id)
 	s.audit(r, "token.mint", org.ID, "minted enrollment token "+req.Name)
-	writeJSON(w, map[string]string{"org_id": org.ID, "token": token})
+	writeJSON(w, map[string]string{"org_id": org.ID, "id": id, "token": token})
+}
+
+// handleRevokeOrgToken revokes a single enrollment token by id (org admins up).
+func (s *Server) handleRevokeOrgToken(w http.ResponseWriter, r *http.Request) {
+	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !s.orgAdminAuthorized(r, org.ID) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	removed, err := s.store.DeleteOrgToken(r.Context(), org.ID, r.PathValue("tokenID"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !removed {
+		http.Error(w, "unknown token", http.StatusNotFound)
+		return
+	}
+	s.log.Info("org enrollment token revoked", "org", org.ID, "token_id", r.PathValue("tokenID"))
+	s.audit(r, "token.revoke", org.ID, "revoked enrollment token "+r.PathValue("tokenID"))
+	writeJSON(w, map[string]string{"status": "revoked"})
 }
 
 // handleEndpointRemove deletes a decommissioned endpoint and all its data.

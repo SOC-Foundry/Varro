@@ -144,14 +144,25 @@ func TestOrgIsolation(t *testing.T) {
 		t.Fatalf("membership wrong: %+v", orgs)
 	}
 
-	// Enrollment token resolves to its org.
-	tok, err := s.CreateOrgToken(ctx, orgB.ID, "test", func(s string) string { return "h:" + s })
+	// Enrollment token resolves to its org, and revoke removes it.
+	tok, tokID, err := s.CreateOrgToken(ctx, orgB.ID, "test", func(s string) string { return "h:" + s })
 	if err != nil {
 		t.Fatal(err)
 	}
 	gotOrg, err := s.OrgForTokenHash(ctx, "h:"+tok)
 	if err != nil || gotOrg != orgB.ID {
 		t.Fatalf("token resolves to %q (err %v), want %q", gotOrg, err, orgB.ID)
+	}
+	// Revoking by id (scoped to the wrong org) must not remove it; the right
+	// org must, after which it no longer resolves.
+	if removed, _ := s.DeleteOrgToken(ctx, orgA.ID, tokID); removed {
+		t.Fatal("DeleteOrgToken removed a token from the wrong org")
+	}
+	if removed, err := s.DeleteOrgToken(ctx, orgB.ID, tokID); err != nil || !removed {
+		t.Fatalf("DeleteOrgToken(own org) removed=%v err=%v", removed, err)
+	}
+	if gotOrg, _ := s.OrgForTokenHash(ctx, "h:"+tok); gotOrg != "" {
+		t.Fatalf("revoked enrollment token still resolves to %q", gotOrg)
 	}
 
 	// Removing a member revokes their org visibility.
