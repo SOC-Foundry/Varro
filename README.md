@@ -12,7 +12,7 @@ Everything is a single static binary — `varro` — with subcommands.
 
 ```
 endpoint A ──┐                             ┌─ alert engine ──▶ webhook / Slack / email
-endpoint B ──┼─ varro agent ──HTTP/JSON──▶ varro server ──▶ SQLite history
+endpoint B ──┼─ varro agent ──HTTP/JSON──▶ varro server ──▶ SQLite / Postgres
 endpoint C ──┘  (per-agent tokens,             │
                  disk spool, gopsutil)         ├─ web dashboard   /
                                                ├─ REST API        /api/v1/...
@@ -32,8 +32,13 @@ endpoint C ──┘  (per-agent tokens,             │
   revoked/lost token self-heals by re-enrolling.
 
 **Server**:
-- Ingest (per-agent token auth), SQLite history (pure Go, no cgo), retention
-  pruning (default 72h).
+- Ingest (per-agent token auth) and history in **SQLite** (pure Go, no cgo) by
+  default, or **Postgres** for scale/HA via `--db-url` / `VARRO_DB_URL`
+  (`store.Open` picks the backend from the DSN; schema is dialect-aware and
+  auto-migrated). Retention pruning (default 72h). See
+  [docs/postgres-setup.md](docs/postgres-setup.md) for the production Postgres
+  deployment — TLS link, SQLite→Postgres migration (`varro migrate-db`), and GCS
+  backups.
 - **Alert engine**: threshold rules with sustain windows (defaults: CPU>90%
   5m, mem>95% 5m, swap>80% 5m, disk>85%, offline 90s — or your own
   `--rules rules.json`), plus **z-score anomaly detection** against each
@@ -201,7 +206,7 @@ cmd/varro/           entry point, flag wiring, version stamp
 internal/model/      shared types (snapshots, events, alerts, rules)
 internal/collect/    gopsutil collectors + security collectors/event diffs
 internal/agent/      sample loop, enrollment, disk spool, pushed config
-internal/store/      SQLite persistence, baselines, tokens, retention
+internal/store/      SQLite/Postgres persistence (dialect-aware), migrate-db, baselines, tokens
 internal/server/     ingest/query API, alert engine, notifiers, dashboard
 internal/server/web/ self-contained dashboard (no external assets)
 internal/cli/        endpoints/status/top/alerts/events/revoke commands
