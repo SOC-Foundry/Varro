@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -257,12 +259,94 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			minutes = int(v.Minutes())
 		}
 	}
-	since := time.Now().Add(-time.Duration(minutes) * time.Minute)
-
-	eps, err := s.store.Endpoints(r.Context(), scope)
+	// Time-travel: ?at=<unix> returns the nearest stored historical snapshot.
+	if at := r.URL.Query().Get("at"); at != "" {
+		ts, _ := strconv.ParseInt(at, 10, 64)
+		data, err := s.store.TopologyAt(r.Context(), scope, ts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if data == nil {
+			http.Error(w, "no snapshot at that time", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+		return
+	}
+	nodes, edges, err := s.buildTopology(r.Context(), scope, minutes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	writeJSON(w, map[string]any{"nodes": nodes, "edges": edges, "window_minutes": minutes})
+}
+
+// handleTopologyTimeline returns the available historical-snapshot timestamps
+// for the scope (per-org), for the time-travel slider.
+func (s *Server) handleTopologyTimeline(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	ts, err := s.store.TopologyTimeline(r.Context(), scope)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if ts == nil {
+		ts = []int64{}
+	}
+	writeJSON(w, map[string]any{"timestamps": ts})
+}
+
+// topoSnapshotLoop periodically serializes each org's topology for time-travel.
+// Leader-only so multiple collectors don't duplicate snapshots.
+func (s *Server) topoSnapshotLoop(ctx context.Context) {
+	t := time.NewTicker(10 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !s.isLeader() {
+				continue
+			}
+			orgs, err := s.store.Orgs(ctx)
+			if err != nil {
+				continue
+			}
+			now := time.Now().Unix()
+			for _, org := range orgs {
+				nodes, edges, err := s.buildTopology(ctx, []string{org.ID}, 60)
+				if err != nil {
+					continue
+				}
+				data, err := json.Marshal(map[string]any{
+					"nodes": nodes, "edges": edges, "window_minutes": 60, "at": now,
+				})
+				if err != nil {
+					continue
+				}
+				if err := s.store.SaveTopologySnapshot(ctx, org.ID, now, data); err != nil {
+					s.log.Error("topology snapshot", "org", org.ID, "error", err)
+				}
+			}
+			s.store.PruneTopologySnapshots(ctx, 7*24*time.Hour)
+		}
+	}
+}
+
+// buildTopology computes the node/edge graph for a scope over the trailing
+// window. Shared by the live handler and the periodic time-travel snapshotter.
+func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int) ([]model.TopoNode, []model.TopoEdge, error) {
+	since := time.Now().Add(-time.Duration(minutes) * time.Minute)
+
+	eps, err := s.store.Endpoints(ctx, scope)
+	if err != nil {
+		return nil, nil, err
 	}
 	inScope := map[string]bool{}
 	fleetIPs := map[string]bool{}
@@ -270,10 +354,9 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		inScope[ep.ID] = true
 	}
 
-	edges, err := s.store.Edges(r.Context(), scope, since)
+	edges, err := s.store.Edges(ctx, scope, since)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, nil, err
 	}
 	// Keep only edges where both ends are visible in this scope.
 	kept := edges[:0]
@@ -306,7 +389,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 	snaps := map[string]*model.Snapshot{}
 	for _, ep := range eps {
-		if snap, err := s.store.Latest(r.Context(), ep.ID); err == nil && snap != nil {
+		if snap, err := s.store.Latest(ctx, ep.ID); err == nil && snap != nil {
 			snaps[ep.ID] = snap
 			for _, nic := range snap.Network.Interfaces {
 				for _, a := range nic.Addrs {
@@ -361,7 +444,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 	// Recent high-signal events per endpoint → "critical" node risk.
 	hotByEndpoint := map[string]map[string]bool{}
-	if evs, err := s.store.Events(r.Context(), "", scope, 500); err == nil {
+	if evs, err := s.store.Events(ctx, "", scope, 500); err == nil {
 		for _, ev := range evs {
 			switch ev.Type {
 			case model.EventDetection, model.EventThreatMatch, model.EventMalwareMatch, model.EventDomainThreatMatch:
@@ -387,7 +470,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		n.Risk, n.RiskReasons = s.nodeRisk(r.Context(), ep, snap, hotByEndpoint[ep.ID])
+		n.Risk, n.RiskReasons = s.nodeRisk(ctx, ep, snap, hotByEndpoint[ep.ID])
 		nodes = append(nodes, n)
 	}
 
@@ -462,5 +545,5 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	if edges == nil {
 		edges = []model.TopoEdge{}
 	}
-	writeJSON(w, map[string]any{"nodes": nodes, "edges": edges, "window_minutes": minutes})
+	return nodes, edges, nil
 }

@@ -225,6 +225,13 @@ CREATE TABLE IF NOT EXISTS leader_lease (
 	holder     TEXT NOT NULL,
 	expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS topology_snapshots (
+	id     INTEGER PRIMARY KEY,
+	org_id TEXT NOT NULL,
+	ts     INTEGER NOT NULL,
+	data   BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_toposnap_org_ts ON topology_snapshots(org_id, ts);
 `
 	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err

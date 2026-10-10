@@ -278,6 +278,12 @@
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fNew"> new edges only</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fExposed"> internet-facing only</label>
       <label style="font-size:12px; color:var(--accent)"><input type="checkbox" id="fBlast"> blast radius (click a host)</label>
+      <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fCollapse"> collapse groups</label>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px">
+      <span style="font-size:12px; color:var(--dim)">time&nbsp;travel</span>
+      <input type="range" id="topoTime" min="0" max="0" value="0" step="1" style="flex:1; max-width:420px; accent-color:var(--accent)">
+      <span id="topoTimeLabel" style="font-size:12px; color:var(--accent); font-family:var(--mono); min-width:60px">live</span>
     </div>
     <div class="card" style="padding:6px">
       <canvas id="topoCanvas" style="width:100%; height:58vh; display:block; touch-action:none; cursor:default"></canvas>
@@ -1039,6 +1045,7 @@ $("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true
 $("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
 
 let topoWindow = 60; // minutes
+let topoAt = null, topoCollapse = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
 const TOPO_RANGES = [["15m",15],["1h",60],["6h",360],["24h",1440]];
 
 function setupTopoControls() {
@@ -1061,6 +1068,19 @@ function setupTopoControls() {
   };
   $("topoSearch").oninput = () => { topoSearch = $("topoSearch").value.trim().toLowerCase(); };
   for (const id of ["fThreat","fNew","fExposed"]) $(id).onchange = () => {};
+  $("fCollapse").onchange = () => { topoCollapse = $("fCollapse").checked; applyView(); };
+  $("topoTime").oninput = () => {
+    const i = +$("topoTime").value;
+    if (i >= topoTimeline.length) {
+      topoAt = null;
+      $("topoTimeLabel").textContent = "live"; $("topoTimeLabel").style.color = "var(--accent)";
+    } else {
+      topoAt = topoTimeline[i];
+      $("topoTimeLabel").textContent = new Date(topoAt * 1000).toLocaleTimeString();
+      $("topoTimeLabel").style.color = "var(--amber)";
+    }
+    loadTopo();
+  };
 }
 let topoSearch = "";
 
@@ -1074,7 +1094,7 @@ function showTopo(on) {
     showAdmin(false); topoMode = true; $("topoView").style.display = "block"; $("detail").style.display = "none";
     loadTopo();
     clearInterval(topoTimer);
-    topoTimer = setInterval(() => { if (!document.hidden) loadTopo(); }, 15000);
+    topoTimer = setInterval(() => { if (!document.hidden && !topoAt) loadTopo(); }, 15000);
     if (!topoAnim) tickTopo();
   } else {
     clearInterval(topoTimer);
@@ -1085,45 +1105,95 @@ function showTopo(on) {
 
 async function loadTopo() {
   try {
-    const t = await getJSON(orgQ("/api/v1/topology?minutes=" + topoWindow));
-    const prev = new Map(topoNodes.map(n => [n.id, n]));
-    const c = $("topoCanvas");
-    topoNodes = t.nodes.map((n, i) => {
-      const old = prev.get(n.id);
-      return {
-        ...n,
-        x: old ? old.x : c.clientWidth / 2 + Math.cos(i * 2.4) * 120,
-        y: old ? old.y : c.clientHeight / 2 + Math.sin(i * 2.4) * 120,
-        vx: 0, vy: 0, fixed: old ? old.fixed : false,
-      };
-    });
-    topoEdges = t.edges;
-    const now = Date.now();
-    for (const e of topoEdges) {
-      e._new = e.internal && e.first_seen && (now - new Date(e.first_seen).getTime() < 3600e3);
-    }
-    // Re-bind the selection to the refreshed objects so the info panel and
-    // highlight survive the 15s data reload.
-    if (topoSel?.kind === "edge") {
-      const k = topoSel.e.src + "|" + topoSel.e.dst;
-      const again = topoEdges.find(x => x.src + "|" + x.dst === k);
-      topoSel = again ? { kind: "edge", e: again } : null;
-      renderTopoInfo();
-    } else if (topoSel?.kind === "node") {
-      const again = topoNodes.find(x => x.id === topoSel.n.id);
-      topoSel = again ? { kind: "node", n: again } : null;
-      renderTopoInfo();
-    }
-    const internal = t.edges.filter(e => e.internal).length;
-    const external = t.edges.length - internal;
-    const crit = t.nodes.filter(n => n.risk === "critical").length;
-    const high = t.nodes.filter(n => n.risk === "high").length;
-    $("topoLegend").innerHTML =
-      `${t.nodes.length} nodes · ${internal} internal · ${external} internet-facing` +
-      (crit ? ` · <span style="color:var(--red)">${crit} critical</span>` : "") +
-      (high ? ` · <span style="color:var(--amber)">${high} high-risk</span>` : "") +
-      ` &nbsp; <span style="color:var(--red)">●</span> threat <span style="color:var(--amber)">●</span> exposed+unpatched <span style="color:var(--green)">●</span> ok`;
+    const url = topoAt
+      ? orgQ("/api/v1/topology?at=" + topoAt)
+      : orgQ("/api/v1/topology?minutes=" + topoWindow);
+    topoRaw = await getJSON(url);
+    applyView();
+    if (!topoAt) rebuildTimeline();
   } catch (e) { console.error(e); }
+}
+
+async function rebuildTimeline() {
+  try {
+    const r = await getJSON(orgQ("/api/v1/topology/timeline"));
+    topoTimeline = (r.timestamps || []).slice().sort((a, b) => a - b); // ascending; last index = live
+    const sl = $("topoTime");
+    sl.max = topoTimeline.length;
+    if (!topoAt) sl.value = topoTimeline.length;
+  } catch (e) { /* no history yet */ }
+}
+
+// applyView derives the rendered topoNodes/topoEdges from the raw data, applying
+// group collapse, preserving positions across reloads, and rebinding selection.
+function applyView() {
+  const c = $("topoCanvas");
+  let nodes = topoRaw.nodes || [], edges = topoRaw.edges || [];
+  if (topoCollapse) [nodes, edges] = collapseGroups(nodes, edges);
+  const prev = new Map(topoNodes.map(n => [n.id, n]));
+  topoNodes = nodes.map((n, i) => {
+    const old = prev.get(n.id);
+    return {
+      ...n,
+      x: old ? old.x : c.clientWidth / 2 + Math.cos(i * 2.4) * 120,
+      y: old ? old.y : c.clientHeight / 2 + Math.sin(i * 2.4) * 120,
+      vx: 0, vy: 0, fixed: old ? old.fixed : false,
+    };
+  });
+  topoEdges = edges.map(e => ({ ...e }));
+  const now = Date.now();
+  for (const e of topoEdges) {
+    e._new = e.internal && e.first_seen && (now - new Date(e.first_seen).getTime() < 3600e3);
+  }
+  if (blastSet && topoSel?.kind === "node") blastSet = computeBlast(topoSel.n.id);
+  if (topoSel?.kind === "edge") {
+    const k = topoSel.e.src + "|" + topoSel.e.dst;
+    const again = topoEdges.find(x => x.src + "|" + x.dst === k);
+    topoSel = again ? { kind: "edge", e: again } : null;
+  } else if (topoSel?.kind === "node") {
+    const again = topoNodes.find(x => x.id === topoSel.n.id);
+    topoSel = again ? { kind: "node", n: again } : null;
+  }
+  renderTopoInfo();
+  const internal = topoEdges.filter(e => e.internal).length;
+  $("topoLegend").innerHTML =
+    `${topoNodes.length} nodes · ${internal} internal · ${topoEdges.length - internal} internet-facing` +
+    (topoNodes.filter(n => n.risk === "critical").length ? ` · <span style="color:var(--red)">${topoNodes.filter(n => n.risk === "critical").length} critical</span>` : "") +
+    (topoNodes.filter(n => n.risk === "high").length ? ` · <span style="color:var(--amber)">${topoNodes.filter(n => n.risk === "high").length} high-risk</span>` : "") +
+    ` &nbsp; <span style="color:var(--red)">●</span> threat <span style="color:var(--amber)">●</span> exposed+unpatched <span style="color:var(--green)">●</span> ok`;
+}
+
+// collapseGroups folds each group (>1 member, sharing n.group) into one
+// aggregate node and remaps edges onto it — the scale view for large fleets.
+function collapseGroups(nodes, edges) {
+  const groupOf = new Map();
+  for (const n of nodes) if (n.group) groupOf.set(n.id, n.group);
+  const counts = {};
+  for (const g of groupOf.values()) counts[g] = (counts[g] || 0) + 1;
+  const collapsible = new Set(Object.keys(counts).filter(g => counts[g] > 1));
+  const mapId = id => { const g = groupOf.get(id); return (g && collapsible.has(g)) ? "grp:" + g : id; };
+  const worst = ms => ms.some(x => x.risk === "critical") ? "critical" : ms.some(x => x.risk === "high") ? "high" : ms.some(x => x.risk === "warn") ? "warn" : "";
+  const out = [], seen = new Set();
+  for (const n of nodes) {
+    const g = groupOf.get(n.id);
+    if (g && collapsible.has(g)) {
+      if (seen.has(g)) continue;
+      seen.add(g);
+      const members = nodes.filter(x => x.group === g);
+      out.push({ id: "grp:" + g, hostname: g + " ×" + counts[g], group: g, aggregated: true,
+        external: members.every(x => x.external), online: true, risk: worst(members) });
+    } else out.push(n);
+  }
+  const em = new Map();
+  for (const e of edges) {
+    const src = mapId(e.src), dst = mapId(e.dst);
+    if (src === dst) continue;
+    const k = src + "|" + dst + "|" + (e.internal ? 1 : 0);
+    const ex = em.get(k);
+    if (ex) { ex.count = (ex.count || 0) + (e.count || 0); ex.bytes = (ex.bytes || 0) + (e.bytes || 0); ex.malicious = ex.malicious || e.malicious; }
+    else em.set(k, { ...e, src, dst });
+  }
+  return [out, [...em.values()]];
 }
 
 /* Quadratic-curve helpers: opposing edges bow apart so they never overlap. */
@@ -1281,6 +1351,31 @@ function tickTopo() {
     ctx.fillText(label, mid.x, mid.y + 0.5);
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
     ctx.globalAlpha = 1;
+  }
+
+  // Group hulls: translucent cluster backgrounds behind nodes sharing a group
+  // (cloud acct/region for hosts, ASN for external destinations).
+  const groups = {};
+  for (const n of topoNodes) {
+    if (n.group && !n.aggregated && !(blastSet && !blastSet.has(n.id))) (groups[n.group] ||= []).push(n);
+  }
+  for (const g in groups) {
+    const ms = groups[g];
+    if (ms.length < 2) continue;
+    let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    for (const n of ms) { minx = Math.min(minx, n.x); miny = Math.min(miny, n.y); maxx = Math.max(maxx, n.x); maxy = Math.max(maxy, n.y); }
+    const pad = 30;
+    ctx.beginPath();
+    ctx.roundRect(minx - pad, miny - pad, maxx - minx + 2 * pad, maxy - miny + 2 * pad, 16);
+    ctx.fillStyle = "rgba(88,166,255,0.045)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(88,166,255,0.22)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#58a6ff";
+    ctx.font = mono;
+    ctx.textAlign = "left";
+    ctx.fillText(g.slice(0, 40), minx - pad + 7, miny - pad + 13);
   }
 
   // Risk → ring colour.
