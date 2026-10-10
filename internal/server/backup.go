@@ -38,12 +38,15 @@ func (s *Server) backupLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
-		if err := s.runBackup(ctx); err != nil {
-			s.log.Error("backup failed", "error", err)
-		}
 		iv := s.cfg.Backup.Interval
 		if iv <= 0 {
 			iv = 24 * time.Hour
+		}
+		// Only the leader backs up, so N collectors don't each upload.
+		if s.isLeader() {
+			if err := s.runBackup(ctx); err != nil {
+				s.log.Error("backup failed", "error", err)
+			}
 		}
 		timer.Reset(iv)
 	}

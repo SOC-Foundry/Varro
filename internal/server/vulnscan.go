@@ -59,6 +59,10 @@ func (s *Server) vulnScanLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
+		if !s.isLeader() {
+			timer.Reset(vulnCheckEvery)
+			continue
+		}
 		s.scanAllEndpoints(ctx)
 		// Drain the details queue in capped batches so fresh findings are
 		// annotated promptly without hammering OSV in one burst.

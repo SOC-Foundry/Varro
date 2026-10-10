@@ -220,6 +220,11 @@ CREATE TABLE IF NOT EXISTS seen_domains (
 	first_seen INTEGER NOT NULL,
 	PRIMARY KEY (org_id, domain)
 );
+CREATE TABLE IF NOT EXISTS leader_lease (
+	id         INTEGER PRIMARY KEY,
+	holder     TEXT NOT NULL,
+	expires_at INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err

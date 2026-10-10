@@ -76,9 +76,13 @@ func (s *Server) alertLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-rules.C:
-			s.evaluateRules(ctx)
+			if s.isLeader() {
+				s.evaluateRules(ctx)
+			}
 		case <-anomalies.C:
-			s.evaluateAnomalies(ctx)
+			if s.isLeader() {
+				s.evaluateAnomalies(ctx)
+			}
 		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/soc-foundry/varro/internal/model"
@@ -81,10 +82,17 @@ type Server struct {
 	ti        *threatIntel
 	det       *detector
 	geo       *geoCache // nil unless GeoIP enabled
+
+	// HA: each collector has a unique instance ID and races for a shared leader
+	// lease; only the leader runs singleton background jobs. On a single
+	// collector it is always the leader.
+	instanceID string
+	leader     atomic.Bool
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, store: st, log: log,
+	id, _ := randomToken()
+	s := &Server{cfg: cfg, store: st, log: log, instanceID: id,
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(), det: newDetector()}
 	if cfg.ThreatIntel {
 		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds, cfg.DomainFeeds)
@@ -160,11 +168,16 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// Leader election: singleton jobs (alerts, prune, vuln scan, backup) run
+	// only on the leader so a second collector doesn't double-fire them.
+	go s.leaderLoop(ctx)
 	go s.pruneLoop(ctx)
 	go s.alertLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}
+	// Threat-intel refresh runs on EVERY collector — each needs its own loaded
+	// indicator sets to match at ingest, which can land on any node.
 	if s.ti != nil {
 		go s.threatRefreshLoop(ctx)
 	}
@@ -185,6 +198,41 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// isLeader reports whether this collector currently holds the leader lease.
+func (s *Server) isLeader() bool { return s.leader.Load() }
+
+// leaderLoop races for the shared leader lease and keeps it renewed. On any
+// error renewing it steps down (leader=false) so a node that loses DB access
+// never acts as a second leader (no split-brain).
+func (s *Server) leaderLoop(ctx context.Context) {
+	const ttl = 30 * time.Second
+	tick := func() {
+		ok, err := s.store.TryAcquireLeader(ctx, s.instanceID, ttl)
+		if err != nil {
+			s.log.Error("leader lease", "error", err)
+			ok = false
+		}
+		if ok != s.leader.Swap(ok) {
+			if ok {
+				s.log.Info("acquired leadership", "instance", s.instanceID)
+			} else {
+				s.log.Info("released leadership", "instance", s.instanceID)
+			}
+		}
+	}
+	tick()
+	t := time.NewTicker(ttl / 3)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			tick()
+		}
+	}
+}
+
 func (s *Server) pruneLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
@@ -193,6 +241,9 @@ func (s *Server) pruneLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !s.isLeader() {
+				continue
+			}
 			n, err := s.store.Prune(ctx, s.cfg.Retention, s.cfg.EventRetention)
 			if err != nil {
 				s.log.Error("prune failed", "error", err)
