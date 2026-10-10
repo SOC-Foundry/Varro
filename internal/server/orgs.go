@@ -13,7 +13,7 @@ import (
 
 // actor identifies who is making an authenticated request, for audit records.
 func (s *Server) actor(r *http.Request) string {
-	if u, ok := s.sessionUser(r); ok {
+	if u, ok := s.currentUser(r); ok {
 		return u.Email
 	}
 	if s.masterAuthorized(r) {
@@ -34,7 +34,7 @@ func (s *Server) audit(r *http.Request, action, orgID, target string) {
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	var scope []string // nil = all
 	if !s.adminAuthorized(r) {
-		user, ok := s.sessionUser(r)
+		user, ok := s.currentUser(r)
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

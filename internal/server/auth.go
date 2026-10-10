@@ -219,6 +219,30 @@ func (s *Server) sessionUser(r *http.Request) (model.User, bool) {
 	return u, true
 }
 
+// bearerUser resolves an Authorization: Bearer personal API token to its owning
+// user with the user's current admin status, if the bearer is such a token.
+func (s *Server) bearerUser(r *http.Request) (model.User, bool) {
+	tok := bearer(r)
+	if tok == "" {
+		return model.User{}, false
+	}
+	u, ok, err := s.store.UserForToken(r.Context(), hashToken(tok))
+	if err != nil || !ok {
+		return model.User{}, false
+	}
+	return u, true
+}
+
+// currentUser returns the acting user from either a session cookie (dashboard)
+// or a personal API token (CLI/API). It is the basis for every authorization
+// decision that isn't the shared master token.
+func (s *Server) currentUser(r *http.Request) (model.User, bool) {
+	if u, ok := s.sessionUser(r); ok {
+		return u, true
+	}
+	return s.bearerUser(r)
+}
+
 // readScope decides what a read request may see.
 //
 //   - auth disabled           -> everything (lab mode)
@@ -261,6 +285,24 @@ func (s *Server) readScope(r *http.Request) (orgIDs []string, err error) {
 		if orgID != "" {
 			return narrow([]string{orgID})
 		}
+		// Personal API token: inherit the owning user's current scope.
+		if u, ok := s.bearerUser(r); ok {
+			if u.Admin {
+				return narrow(nil)
+			}
+			orgs, err := s.store.UserOrgs(r.Context(), u.Email)
+			if err != nil {
+				return nil, err
+			}
+			if len(orgs) == 0 {
+				return nil, fmt.Errorf("your account (%s) is not a member of any org yet — ask an admin for an invite", u.Email)
+			}
+			allowed := make([]string, len(orgs))
+			for i, o := range orgs {
+				allowed[i] = o.ID
+			}
+			return narrow(allowed)
+		}
 		return nil, errUnauthorized
 	}
 	if user, ok := s.sessionUser(r); ok {
@@ -300,22 +342,24 @@ func (s *Server) requireReadScope(w http.ResponseWriter, r *http.Request) ([]str
 	return scope, true
 }
 
-// adminAuthorized allows the master token or an instance-admin session.
+// adminAuthorized allows the master token, an instance-admin session, or a
+// personal API token owned by an instance admin.
 func (s *Server) adminAuthorized(r *http.Request) bool {
 	if s.masterAuthorized(r) {
 		return true
 	}
-	user, ok := s.sessionUser(r)
+	user, ok := s.currentUser(r)
 	return ok && user.Admin
 }
 
 // orgAdminAuthorized allows instance admins plus users holding the "admin"
 // role in the given org — the self-service management boundary for tenants.
+// The user may authenticate by session or by personal API token.
 func (s *Server) orgAdminAuthorized(r *http.Request, orgID string) bool {
 	if s.adminAuthorized(r) {
 		return true
 	}
-	user, ok := s.sessionUser(r)
+	user, ok := s.currentUser(r)
 	if !ok {
 		return false
 	}

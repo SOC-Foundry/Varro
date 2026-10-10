@@ -448,6 +448,14 @@ type OrgTokenInfo struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// UserTokenInfo describes a personal API token without revealing its value.
+type UserTokenInfo struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	CreatedAt time.Time  `json:"created_at"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+}
+
 // EndpointSummary is what the server returns when listing endpoints.
 type EndpointSummary struct {
 	ID           string    `json:"id"`

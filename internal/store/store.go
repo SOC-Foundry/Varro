@@ -142,6 +142,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 	user_id    TEXT NOT NULL REFERENCES users(id),
 	expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS user_tokens (
+	token_hash TEXT PRIMARY KEY,
+	id         TEXT NOT NULL,
+	user_id    TEXT NOT NULL REFERENCES users(id),
+	email      TEXT NOT NULL,
+	name       TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	last_used  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_user_tokens_user ON user_tokens(user_id);
 CREATE TABLE IF NOT EXISTS inventory (
 	endpoint_id TEXT PRIMARY KEY,
 	ts          INTEGER NOT NULL,

@@ -239,6 +239,29 @@
         <p style="color:var(--dim); font-size:12.5px; margin-bottom:8px">For manual installs or air-gapped setups. Verify against <a style="color:var(--accent)" href="/download/checksums.txt">checksums.txt</a> (signed: <a style="color:var(--accent)" href="/download/checksums.txt.sig">.sig</a>).</p>
         <div id="dlBins" style="display:flex; flex-wrap:wrap; gap:14px; font-family:var(--mono); font-size:13px"></div>
       </div>
+      <div class="card wide"><h3>Personal API tokens (CLI)</h3>
+        <p style="color:var(--dim); font-size:12.5px; margin-bottom:10px">
+          A personal token lets you drive the <code>varro</code> CLI and API as yourself — it carries your own access (your orgs; all orgs if you're an instance admin) and can be revoked anytime. Use it as <code>--token</code> or <code>VARRO_TOKEN</code>.
+        </p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px">
+          <input id="apiTokName" placeholder="label (e.g. laptop-cli)" maxlength="100"
+                 style="flex:1; min-width:180px; padding:7px 9px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--fg); font-size:13px">
+          <button class="abtn" id="apiTokCreate" style="color:var(--accent)">Create token</button>
+        </div>
+        <div id="apiTokReveal" style="display:none; margin-bottom:12px">
+          <div style="color:var(--dim); font-size:12px; margin-bottom:3px">Copy this now — it is shown only once:</div>
+          <pre class="snippet" id="apiTokValue"></pre>
+          <div style="color:var(--dim); font-size:12px; margin:8px 0 2px">Example — point the CLI at this collector:</div>
+          <pre class="snippet" id="apiTokUsage"></pre>
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px">
+          <thead><tr style="text-align:left; color:var(--dim)">
+            <th style="padding:4px 6px">Label</th><th style="padding:4px 6px">Created</th>
+            <th style="padding:4px 6px">Last used</th><th style="padding:4px 6px"></th>
+          </tr></thead>
+          <tbody id="apiTokRows"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -427,6 +450,7 @@ document.addEventListener("click", ev => {
     case "role":          setRole(d.email, d.role); break;
     case "removeMember":  removeMember(d.email); break;
     case "openEndpoint":  selected = d.id; showTopo(false); refreshDetail(); break;
+    case "revokeApiToken": revokeApiToken(d.id, d.name); break;
   }
 });
 
@@ -918,6 +942,51 @@ function renderDownload() {
     `$env:VARRO_TOKEN = "<token>"\niwr -UseBasicParsing ${base}/install.ps1 | iex`;
   $("dlBins").innerHTML = DL_ASSETS.map(a =>
     `<a style="color:var(--accent)" href="/download/${a}">${a}</a>`).join("");
+  $("apiTokCreate").onclick = createApiToken;
+  $("apiTokReveal").style.display = "none";
+  loadApiTokens();
+}
+
+/* ---- personal API tokens ---- */
+function fmtTokTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? "—" : d.toLocaleString();
+}
+
+async function loadApiTokens() {
+  try {
+    const toks = await getJSON("/api/v1/tokens");
+    $("apiTokRows").innerHTML = toks.length
+      ? toks.map(t => `<tr>
+          <td style="padding:4px 6px">${esc(t.name) || "<span style='color:var(--dim)'>(unnamed)</span>"}</td>
+          <td style="padding:4px 6px; color:var(--dim)">${fmtTokTime(t.created_at)}</td>
+          <td style="padding:4px 6px; color:var(--dim)">${fmtTokTime(t.last_used)}</td>
+          <td style="padding:4px 6px"><button class="abtn danger" data-act="revokeApiToken" data-id="${esc(t.id)}" data-name="${esc(t.name)}">revoke</button></td>
+        </tr>`).join("")
+      : `<tr><td colspan="4" style="padding:6px; color:var(--dim)">No personal API tokens yet.</td></tr>`;
+  } catch (e) { oops(e); }
+}
+
+async function createApiToken() {
+  try {
+    const name = $("apiTokName").value.trim();
+    const res = await postJSON("/api/v1/tokens", {name});
+    $("apiTokName").value = "";
+    $("apiTokValue").textContent = res.token;
+    $("apiTokUsage").textContent =
+      `varro endpoints --server ${location.origin} --token ${res.token}`;
+    $("apiTokReveal").style.display = "block";
+    loadApiTokens();
+  } catch (e) { oops(e); }
+}
+
+async function revokeApiToken(id, name) {
+  if (!confirm(`Revoke API token ${name || id}? Anything using it will stop working.`)) return;
+  try {
+    await del(`/api/v1/tokens/${encodeURIComponent(id)}`);
+    loadApiTokens();
+  } catch (e) { oops(e); }
 }
 
 /* ---- topology view ---- */
