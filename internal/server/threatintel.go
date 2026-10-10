@@ -335,6 +335,10 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventThreatMatch, msg)
 		s.log.Warn("threat-intel match", "endpoint", snap.Hostname, "ip", ip, "process", proc)
 		s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventThreatMatch, Message: msg}})
+		s.siemForward(orgID, snap.Hostname, model.EventThreatMatch, "HIGH", "T1071 Application Layer Protocol", msg)
+		if n, fire := s.corr.observe("ip:"+ip, snap.AgentID); fire {
+			s.raiseCoordinated(ctx, orgID, snap.Hostname, snap.AgentID, "IP "+ip, n)
+		}
 	}
 	for _, ph := range snap.ProcHashes {
 		if !s.ti.isBadHash(ph.SHA256) || !s.ti.shouldAlert(snap.AgentID, ph.SHA256) {
@@ -345,6 +349,10 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventMalwareMatch, msg)
 		s.log.Warn("malware-hash match", "endpoint", snap.Hostname, "process", ph.Name, "sha256", ph.SHA256)
 		s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventMalwareMatch, Message: msg}})
+		s.siemForward(orgID, snap.Hostname, model.EventMalwareMatch, "HIGH", "T1204 User Execution", msg)
+		if n, fire := s.corr.observe("hash:"+ph.SHA256, snap.AgentID); fire {
+			s.raiseCoordinated(ctx, orgID, snap.Hostname, snap.AgentID, "malware "+ph.Name, n)
+		}
 	}
 	s.checkDomains(ctx, orgID, snap)
 }
@@ -368,6 +376,7 @@ func (s *Server) checkDomains(ctx context.Context, orgID string, snap *model.Sna
 					" — first time seen for this org"
 				s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDomainNew, msg)
 				s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventDomainNew, Message: msg}})
+				s.siemForward(orgID, snap.Hostname, model.EventDomainNew, "LOW", "", msg)
 			}
 		}
 
@@ -378,6 +387,10 @@ func (s *Server) checkDomains(ctx context.Context, orgID string, snap *model.Sna
 			s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDomainThreatMatch, msg)
 			s.log.Warn("domain threat match", "endpoint", snap.Hostname, "domain", domain)
 			s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventDomainThreatMatch, Message: msg}})
+			s.siemForward(orgID, snap.Hostname, model.EventDomainThreatMatch, "HIGH", "T1071 Application Layer Protocol", msg)
+			if n, fire := s.corr.observe("domain:"+domain, snap.AgentID); fire {
+				s.raiseCoordinated(ctx, orgID, snap.Hostname, snap.AgentID, "domain "+domain, n)
+			}
 		}
 	}
 	for _, fl := range snap.Network.Flows {

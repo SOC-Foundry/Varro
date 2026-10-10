@@ -243,6 +243,8 @@ func runServer(ctx context.Context, args []string) error {
 		"comma-separated malware-hash feed URLs (default: MalwareBazaar recent sha256)")
 	domainFeeds := fs.String("threat-domain-feeds", "",
 		"comma-separated malicious-domain feed URLs (default: URLhaus hostfile)")
+	siemURL := fs.String("siem-url", os.Getenv("VARRO_SIEM_URL"),
+		"if set, security events/detections/alerts are POSTed here as JSON (SIEM export)")
 	geoip := fs.Bool("geoip", false,
 		"enrich external topology remotes with country/ASN (sends observed remote IPs to a third-party lookup service)")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
@@ -329,6 +331,7 @@ func runServer(ctx context.Context, args []string) error {
 		HashFeeds:    splitNonEmpty(*hashFeeds),
 		DomainFeeds:  splitNonEmpty(*domainFeeds),
 		GeoIP:        *geoip,
+		SIEMURL:      *siemURL,
 		AgentDesiredVersion: func() string {
 			if !*autoUpgrade {
 				return ""

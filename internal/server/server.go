@@ -60,6 +60,8 @@ type Config struct {
 	DomainFeeds []string // override the default malicious-domain feeds
 	GeoIP       bool     // enrich external topology remotes with country/ASN (third-party lookups)
 
+	SIEMURL string // if set, security events/alerts are POSTed here as JSON (SIEM export)
+
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
 	AdminEmails  map[string]bool // emails promoted to instance admin at sign-in
 	MetricsToken string          // if set, /metrics requires this bearer token
@@ -88,12 +90,15 @@ type Server struct {
 	// collector it is always the leader.
 	instanceID string
 	leader     atomic.Bool
+
+	corr *correlator // cross-endpoint IOC correlation
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	id, _ := randomToken()
 	s := &Server{cfg: cfg, store: st, log: log, instanceID: id,
-		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(), det: newDetector()}
+		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(),
+		det: newDetector(), corr: newCorrelator()}
 	if cfg.ThreatIntel {
 		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds, cfg.DomainFeeds)
 	}

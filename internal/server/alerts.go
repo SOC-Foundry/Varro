@@ -229,6 +229,7 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 		}
 		s.log.Warn("ALERT firing", "rule", rule, "endpoint", ep.Hostname, "message", message)
 		s.notify("firing", rule, ep.Hostname, message)
+		s.siemForward(ep.OrgID, ep.Hostname, "alert:"+rule, "WARNING", "", message)
 	case !breaching && openID != 0:
 		if err := s.store.ResolveAlert(ctx, openID); err != nil {
 			s.log.Error("resolve alert", "rule", rule, "error", err)
@@ -237,6 +238,7 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 		msg := fmt.Sprintf("%s: %s resolved", ep.Hostname, rule)
 		s.log.Info("alert resolved", "rule", rule, "endpoint", ep.Hostname)
 		s.notify("resolved", rule, ep.Hostname, msg)
+		s.siemForward(ep.OrgID, ep.Hostname, "alert_resolved:"+rule, "INFO", "", msg)
 	}
 }
 
