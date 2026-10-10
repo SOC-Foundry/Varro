@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -286,14 +285,25 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	edges = kept
 
 	// External aggregates from latest snapshots; also collect fleet IPs so
-	// internal traffic isn't double-counted as external.
+	// internal traffic isn't double-counted as external. Per-remote stats let us
+	// break external talk out into one node per destination domain.
+	type remoteStat struct {
+		count  int
+		bytes  uint64
+		domain string // agent-observed forward name (DNS/SNI), "" if unknown
+	}
 	type extAgg struct {
-		count   int
-		bytes   uint64
-		remotes map[string]int
-		domains map[string]string // remote IP -> agent-observed domain (DNS/SNI)
+		remotes map[string]*remoteStat // remote IP -> stats
 	}
 	ext := map[string]*extAgg{}
+	remoteOf := func(a *extAgg, ip string) *remoteStat {
+		rs := a.remotes[ip]
+		if rs == nil {
+			rs = &remoteStat{}
+			a.remotes[ip] = rs
+		}
+		return rs
+	}
 	snaps := map[string]*model.Snapshot{}
 	for _, ep := range eps {
 		if snap, err := s.store.Latest(r.Context(), ep.ID); err == nil && snap != nil {
@@ -316,13 +326,13 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 			a := ext[id]
 			if a == nil {
-				a = &extAgg{remotes: map[string]int{}, domains: map[string]string{}}
+				a = &extAgg{remotes: map[string]*remoteStat{}}
 				ext[id] = a
 			}
-			a.count++
-			a.remotes[ip]++
+			rs := remoteOf(a, ip)
+			rs.count++
 			if conn.Domain != "" {
-				a.domains[ip] = conn.Domain
+				rs.domain = conn.Domain
 			}
 		}
 		// conntrack byte totals toward non-fleet remotes give the edge weight.
@@ -336,15 +346,16 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 			a := ext[id]
 			if a == nil {
-				a = &extAgg{remotes: map[string]int{}, domains: map[string]string{}}
+				a = &extAgg{remotes: map[string]*remoteStat{}}
 				ext[id] = a
 			}
-			a.bytes += fl.BytesOut + fl.BytesIn
-			if a.remotes[ip] == 0 {
-				a.remotes[ip] = 1 // ensure flow-only remotes still surface
-			}
+			rs := remoteOf(a, ip)
+			rs.bytes += fl.BytesOut + fl.BytesIn
 			if fl.Domain != "" {
-				a.domains[ip] = fl.Domain
+				rs.domain = fl.Domain
+			}
+			if rs.count == 0 {
+				rs.count = 1 // ensure flow-only remotes still surface
 			}
 		}
 	}
@@ -381,46 +392,69 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(ext) > 0 {
-		nodes = append(nodes, model.TopoNode{ID: "internet", Hostname: "internet", Online: true})
+		// Explode external talk into one node per destination domain (the real
+		// website/service), with a single "internet" node for traffic we
+		// couldn't attribute to a domain. Each endpoint gets one edge per
+		// destination node.
+		extNodes := map[string]*model.TopoNode{} // node id -> node
+		type edgeAgg struct {
+			count     int
+			bytes     uint64
+			remotes   []string
+			malicious bool
+		}
+		edgeAggs := map[string]*edgeAgg{} // "src|dst" -> agg
+
 		for id, a := range ext {
-			type rc struct {
-				ip string
-				n  int
-			}
-			var rcs []rc
-			for ip, n := range a.remotes {
-				rcs = append(rcs, rc{ip, n})
-			}
-			sort.Slice(rcs, func(i, j int) bool { return rcs[i].n > rcs[j].n })
-			var remotes, names, geo []string
-			malicious := false
-			for i := 0; i < len(rcs) && i < 5; i++ {
-				remotes = append(remotes, rcs[i].ip)
-				// Prefer the forward domain the agent observed (DNS/SNI) — the
-				// real website — over a reverse-DNS PTR, which is useless for
-				// CDN/cloud IPs.
-				name := a.domains[rcs[i].ip]
-				if name == "" {
-					name = s.rdns.name(rcs[i].ip)
-				}
-				names = append(names, name)
-				if s.geo != nil {
-					geo = append(geo, s.geo.label(rcs[i].ip))
-				}
-			}
-			// Flag the edge if any remote (not just the top 5) is a known-bad IP
-			// or resolved to a known-bad domain.
-			if s.ti != nil {
-				for ip := range a.remotes {
-					if s.ti.isBad(ip) || s.ti.isBadDomain(a.domains[ip]) {
-						malicious = true
-						break
+			for ip, rs := range a.remotes {
+				mal := s.ti != nil && (s.ti.isBad(ip) || s.ti.isBadDomain(rs.domain))
+				var nodeID, host, group string
+				if rs.domain != "" {
+					nodeID, host = "ext:"+rs.domain, rs.domain
+					if s.geo != nil {
+						group = s.geo.label(ip)
 					}
+				} else {
+					nodeID, host = "internet", "internet"
+				}
+				n := extNodes[nodeID]
+				if n == nil {
+					n = &model.TopoNode{ID: nodeID, Hostname: host, Online: true, External: true, Group: group}
+					extNodes[nodeID] = n
+				}
+				if mal {
+					n.Risk, n.RiskReasons = "critical", []string{"known-malicious destination"}
+				}
+				key := id + "|" + nodeID
+				ea := edgeAggs[key]
+				if ea == nil {
+					ea = &edgeAgg{}
+					edgeAggs[key] = ea
+				}
+				ea.count += rs.count
+				ea.bytes += rs.bytes
+				if len(ea.remotes) < 5 {
+					ea.remotes = append(ea.remotes, ip)
+				}
+				if mal {
+					ea.malicious = true
+				}
+			}
+		}
+		for _, n := range extNodes {
+			nodes = append(nodes, *n)
+		}
+		for key, ea := range edgeAggs {
+			src, dst, _ := strings.Cut(key, "|")
+			var names []string
+			if dst == "internet" { // label the raw IPs with reverse-DNS
+				for _, ip := range ea.remotes {
+					names = append(names, s.rdns.name(ip))
 				}
 			}
 			edges = append(edges, model.TopoEdge{
-				Src: id, Dst: "internet", Count: a.count, Bytes: a.bytes,
-				Remotes: remotes, RemoteNames: names, RemoteGeo: geo, Malicious: malicious,
+				Src: src, Dst: dst, Count: ea.count, Bytes: ea.bytes,
+				Remotes: ea.remotes, RemoteNames: names, Malicious: ea.malicious,
 			})
 		}
 	}

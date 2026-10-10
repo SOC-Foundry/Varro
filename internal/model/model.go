@@ -241,9 +241,10 @@ type TopoNode struct {
 	// detection/threat). RiskReasons explains the rating.
 	Risk        string   `json:"risk,omitempty"`
 	RiskReasons []string `json:"risk_reasons,omitempty"`
-	Group       string   `json:"group,omitempty"`      // cloud acct/region grouping
+	Group       string   `json:"group,omitempty"`      // cloud acct/region grouping (or ASN for external nodes)
 	Containers  int      `json:"containers,omitempty"` // running container count
 	Platform    string   `json:"platform,omitempty"`
+	External    bool     `json:"external,omitempty"` // an external destination (website/service), not a fleet host
 }
 
 type EdgeProcess struct {

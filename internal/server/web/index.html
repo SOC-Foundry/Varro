@@ -277,6 +277,7 @@
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fThreat"> threats only</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fNew"> new edges only</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fExposed"> internet-facing only</label>
+      <label style="font-size:12px; color:var(--accent)"><input type="checkbox" id="fBlast"> blast radius (click a host)</label>
     </div>
     <div class="card" style="padding:6px">
       <canvas id="topoCanvas" style="width:100%; height:58vh; display:block; touch-action:none; cursor:default"></canvas>
@@ -1031,6 +1032,7 @@ async function revokeApiToken(id, name) {
 
 /* ---- topology view ---- */
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
+let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
 let dragNode = null;
 
 $("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true); };
@@ -1174,7 +1176,7 @@ function tickTopo() {
   const fThreat = $("fThreat").checked, fNew = $("fNew").checked, fExposed = $("fExposed").checked;
   const edgeShown = e => (!fNew || e._new) && (!fThreat || e.malicious);
   const nodeDim = n => {
-    if (n.id === "internet") return false;
+    if (n.external) return false;
     if (fThreat && n.risk !== "critical" && n.risk !== "high") return true;
     if (fExposed && !topoEdges.some(e => !e.internal && e.src === n.id)) return true;
     if (topoSearch && !n.hostname.toLowerCase().includes(topoSearch)) return true;
@@ -1216,8 +1218,10 @@ function tickTopo() {
     if (!a || !b) continue;
     if (!edgeShown(e)) { e._geom = null; continue; }
     const isSel = topoSel && topoSel.kind === "edge" && topoSel.e === e;
-    const dimmed = topoSel && !isSel &&
+    const inBlast = blastSet && e.internal && blastSet.has(e.src) && blastSet.has(e.dst);
+    let dimmed = topoSel && !isSel &&
       !(topoSel.kind === "node" && (topoSel.n.id === e.src || topoSel.n.id === e.dst));
+    if (blastSet) dimmed = !inBlast;
     const bow = hasReverse.has(e.dst + "|" + e.src) ? 26 : 10;
     const ctrl = edgeCtrl(a, b, bow);
     e._geom = { a, b, ctrl };
@@ -1235,6 +1239,7 @@ function tickTopo() {
     let color = e.internal ? "#3fb950" : "#3d444d";
     if (e.malicious) color = "#f85149";
     else if (e._new) color = `rgba(121,192,255,${0.5 + 0.5 * pulse})`, width += 1;
+    if (inBlast) color = "#ff7b00", width += 1; // attack path
     if (isSel) color = "#79c0ff";
     ctx.globalAlpha = dimmed ? 0.18 : 1;
     ctx.strokeStyle = color;
@@ -1283,39 +1288,48 @@ function tickTopo() {
 
   // Nodes.
   for (const n of topoNodes) {
-    const isNet = n.id === "internet";
+    const isExt = n.external;                 // internet node + per-domain destination nodes
+    const isCloud = n.id === "internet";
     const isSel = topoSel && topoSel.kind === "node" && topoSel.n === n;
-    const filteredOut = !isNet && nodeDim(n);
-    const dimmed = filteredOut || (topoSel && !isSel && topoSel.kind === "node" &&
+    const filteredOut = !isExt && nodeDim(n);
+    let dimmed = filteredOut || (topoSel && !isSel && topoSel.kind === "node" &&
       !topoEdges.some(e => (e.src === topoSel.n.id && e.dst === n.id) || (e.dst === topoSel.n.id && e.src === n.id)));
+    if (blastSet) dimmed = !blastSet.has(n.id); // blast-radius mode: only reachable nodes lit
     const rc = riskColor(n.risk);
-    ctx.globalAlpha = dimmed ? 0.25 : 1;
+    ctx.globalAlpha = dimmed ? 0.22 : 1;
 
-    // Pulsing halo for critical nodes.
-    if (!isNet && n.risk === "critical" && !dimmed) {
+    // Pulsing halo for critical nodes (incl. malicious external destinations).
+    if (n.risk === "critical" && !dimmed) {
       ctx.beginPath();
-      ctx.arc(n.x, n.y, 18 + 8 * pulse, 0, Math.PI * 2);
+      ctx.arc(n.x, n.y, (isExt ? 14 : 18) + 8 * pulse, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(248,81,73,${0.25 * (1 - pulse)})`;
       ctx.fill();
     }
     ctx.beginPath();
-    ctx.arc(n.x, n.y, isNet ? 14 : 18, 0, Math.PI * 2);
-    ctx.fillStyle = isNet ? "#21262d" : rc ? "#2a1416" : (n.online ? "#13341e" : "#3d1d1f");
+    ctx.arc(n.x, n.y, isExt ? 14 : 18, 0, Math.PI * 2);
+    ctx.fillStyle = rc ? "#2a1416" : isExt ? "#21262d" : (n.online ? "#13341e" : "#3d1d1f");
     ctx.fill();
-    ctx.strokeStyle = isSel ? "#79c0ff" : isNet ? "#8b949e" : (rc || (n.online ? "#3fb950" : "#f85149"));
-    ctx.lineWidth = isSel ? 2.5 : rc ? 2.5 : 1.5;
+    ctx.strokeStyle = isSel ? "#79c0ff" : rc ? rc : isExt ? "#8b949e" : (n.online ? "#3fb950" : "#f85149");
+    ctx.lineWidth = isSel || rc ? 2.5 : 1.5;
     ctx.stroke();
-    // Container badge.
-    if (n.containers > 0 && !isNet) {
+    // Container badge (fleet hosts only).
+    if (n.containers > 0 && !isExt) {
       ctx.fillStyle = "#58a6ff";
       ctx.font = "9px " + getComputedStyle(document.body).getPropertyValue("--mono");
       ctx.textAlign = "center";
       ctx.fillText("▣" + n.containers, n.x, n.y - 24);
     }
-    ctx.fillStyle = "#e6edf3";
-    ctx.font = "11px -apple-system, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(isNet ? "☁" : n.hostname.slice(0, 16), n.x, n.y + (isNet ? 4 : 32));
+    if (isCloud) {
+      ctx.fillStyle = "#e6edf3";
+      ctx.font = "11px -apple-system, sans-serif";
+      ctx.fillText("☁", n.x, n.y + 4);
+    } else {
+      // Host name below a big node; domain below a small external node.
+      ctx.fillStyle = rc ? "#ff9f99" : "#e6edf3";
+      ctx.font = (isExt ? "10.5px " : "11px ") + "-apple-system, sans-serif";
+      ctx.fillText(n.hostname.slice(0, 24), n.x, n.y + (isExt ? 26 : 32));
+    }
     ctx.textAlign = "left";
     ctx.globalAlpha = 1;
   }
@@ -1346,17 +1360,25 @@ function renderTopoInfo() {
   box.style.display = "block";
   if (topoSel.kind === "node") {
     const n = topoSel.n;
-    if (n.id === "internet") {
-      const exts = topoEdges.filter(e => e.dst === "internet");
-      box.innerHTML = `<h3>☁ internet</h3>` + exts.map(e => {
-        const src = topoNodes.find(x => x.id === e.src);
-        const remotes = (e.remotes ?? []).map((ip, i) => {
-          const nm = (e.remote_names ?? [])[i], g = (e.remote_geo ?? [])[i];
-          return (nm ? `${esc(nm)} (${esc(ip)})` : esc(ip)) + (g ? ` <span style="color:var(--amber)">[${esc(g)}]</span>` : "");
-        }).join(", ");
-        const mal = e.malicious ? ' <span style="color:var(--red)">⚠ KNOWN-MALICIOUS</span>' : "";
-        return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${esc(src?.hostname ?? e.src)} → ${e.count} connection${e.count === 1 ? "" : "s"}${mal}<br><span style="color:var(--dim)">top remotes: ${remotes}</span></div>`;
-      }).join("");
+    if (n.external) {
+      const into = topoEdges.filter(e => e.dst === n.id);
+      const isCloud = n.id === "internet";
+      const mal = n.risk === "critical" ? ' <span style="color:var(--red)">⚠ KNOWN-MALICIOUS</span>' : "";
+      const title = isCloud ? "☁ internet" : `🌐 ${esc(n.hostname)}`;
+      box.innerHTML = `<h3>${title}${mal}</h3>` +
+        (n.group ? `<div style="color:var(--amber); font-size:12px; margin-bottom:4px">${esc(n.group)}</div>` : "") +
+        into.map(e => {
+          const src = topoNodes.find(x => x.id === e.src);
+          const vol = e.bytes ? ` · ${fmtBytes(e.bytes, "")}` : "";
+          let remotes = "";
+          if (isCloud) {
+            remotes = "<br><span style='color:var(--dim)'>top remotes: " + (e.remotes ?? []).map((ip, i) => {
+              const nm = (e.remote_names ?? [])[i];
+              return nm ? `${esc(nm)} (${esc(ip)})` : esc(ip);
+            }).join(", ") + "</span>";
+          }
+          return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${esc(src?.hostname ?? e.src)} → ${e.count} conn${e.count === 1 ? "" : "s"}${vol}${remotes}</div>`;
+        }).join("");
       return;
     }
     const related = topoEdges.filter(e => e.src === n.id || e.dst === n.id);
@@ -1371,6 +1393,9 @@ function renderTopoInfo() {
         const what = e.internal ? (e.processes ?? []).map(p => `${esc(p.process)}:${p.port}`).join(", ") : `${e.count} conns`;
         return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${dir} <span style="color:var(--dim)">${what}</span></div>`;
       }).join("") +
+      (blastSet && blastSet.has(n.id)
+        ? `<div style="color:#ff7b00; font-size:12.5px; margin-top:6px">⟐ blast radius: can reach ${blastSet.size - 1} host${blastSet.size - 1 === 1 ? "" : "s"} via lateral paths</div>`
+        : "") +
       `<button class="abtn" style="margin-top:10px" data-act="openEndpoint" data-id="${esc(n.id)}">Open endpoint →</button>`;
     return;
   }
@@ -1383,9 +1408,9 @@ function renderTopoInfo() {
     }).join("<br>");
     const vol = e.bytes ? ` · ${fmtBytes(e.bytes, "")} transferred` : "";
     const mal = e.malicious ? ' <span style="color:var(--red)">⚠ KNOWN-MALICIOUS</span>' : "";
-    box.innerHTML = `<h3>${name(e.src)} → internet${mal}</h3>
-      <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"}${vol}<br>
-      <span style="color:var(--dim)">top remotes:<br>${remotes}</span></div>`;
+    box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}${mal}</h3>
+      <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"}${vol}` +
+      (remotes ? `<br><span style="color:var(--dim)">top remotes:<br>${remotes}</span>` : "") + `</div>`;
     return;
   }
   box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}</h3>
@@ -1419,10 +1444,38 @@ $("topoCanvas").addEventListener("pointerup", ev => {
     const n = topoNodeAt(p);
     const e = n ? null : topoEdgeAt(p);
     topoSel = n ? { kind: "node", n } : e ? { kind: "edge", e } : null;
+    // Blast-radius: selecting a fleet host highlights everything it can reach.
+    blastSet = (n && !n.external && $("fBlast").checked) ? computeBlast(n.id) : null;
     if (dragNode) dragNode.fixed = false;
     renderTopoInfo();
   }
   dragNode = null;
+});
+
+// computeBlast returns the set of node ids reachable from root via internal
+// edges (directed src -> dst) — the lateral-movement blast radius.
+function computeBlast(root) {
+  const adj = new Map();
+  for (const e of topoEdges) {
+    if (!e.internal) continue;
+    if (!adj.has(e.src)) adj.set(e.src, []);
+    adj.get(e.src).push(e.dst);
+  }
+  const seen = new Set([root]);
+  const queue = [root];
+  while (queue.length) {
+    for (const nxt of adj.get(queue.shift()) || []) {
+      if (!seen.has(nxt)) { seen.add(nxt); queue.push(nxt); }
+    }
+  }
+  return seen;
+}
+
+// Unchecking blast radius clears the highlight immediately.
+$("fBlast").addEventListener("change", () => {
+  if (!$("fBlast").checked) blastSet = null;
+  else if (topoSel && topoSel.kind === "node" && !topoSel.n.external) blastSet = computeBlast(topoSel.n.id);
+  renderTopoInfo();
 });
 
 bootstrap();
