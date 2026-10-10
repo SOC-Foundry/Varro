@@ -37,9 +37,12 @@ func Open(dsn string) (*Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Postgres handles concurrent writers; allow a real pool.
+		// Postgres handles concurrent writers; allow a real pool. Recycle
+		// connections so a PG restart/failover doesn't leave stale ones around.
 		sdb.SetMaxOpenConns(20)
 		sdb.SetMaxIdleConns(5)
+		sdb.SetConnMaxLifetime(time.Hour)
+		sdb.SetConnMaxIdleTime(10 * time.Minute)
 	} else {
 		sdb, err = sql.Open("sqlite", dsn+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 		if err != nil {
@@ -86,6 +89,7 @@ CREATE TABLE IF NOT EXISTS samples (
 	payload     BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_samples_endpoint_ts ON samples(endpoint_id, ts);
+CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts);
 CREATE TABLE IF NOT EXISTS events (
 	id          INTEGER PRIMARY KEY,
 	endpoint_id TEXT NOT NULL,
@@ -563,17 +567,28 @@ GROUP BY bucket ORDER BY bucket`,
 	return out, rows.Err()
 }
 
-// Prune deletes samples and events older than the retention window and
-// returns how many sample rows were removed.
-func (s *Store) Prune(ctx context.Context, retention time.Duration) (int64, error) {
-	cutoff := time.Now().Add(-retention).Unix()
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < ?`, cutoff); err != nil {
+// Prune applies tiered retention: high-volume raw samples (and topology edges)
+// are kept only for sampleRetention, while security events and resolved alerts
+// — the audit-relevant history — are kept for the longer eventRetention. Open
+// (firing) alerts are never pruned. Returns the number of sample rows removed.
+func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.Duration) (int64, error) {
+	if eventRetention < sampleRetention {
+		eventRetention = sampleRetention // events outlive samples, never the reverse
+	}
+	sampleCut := time.Now().Add(-sampleRetention).Unix()
+	eventCut := time.Now().Add(-eventRetention).Unix()
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < ?`, eventCut); err != nil {
 		return 0, err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, cutoff); err != nil {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?`, eventCut); err != nil {
 		return 0, err
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, cutoff)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)
 	if err != nil {
 		return 0, err
 	}

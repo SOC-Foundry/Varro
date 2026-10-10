@@ -35,9 +35,10 @@ var installScriptPS string
 const maxIngestBody = 32 << 20
 
 type Config struct {
-	Listen    string
-	Token     string        // master/admin token (enrolls into the default org; full API access)
-	Retention time.Duration // how long samples are kept
+	Listen         string
+	Token          string        // master/admin token (enrolls into the default org; full API access)
+	Retention      time.Duration // how long raw samples are kept
+	EventRetention time.Duration // how long security events + resolved alerts are kept (>= Retention)
 
 	AgentInterval time.Duration // sampling interval pushed to agents
 	AllowReenroll bool          // let an already-enrolled agent ID enroll again
@@ -192,7 +193,7 @@ func (s *Server) pruneLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			n, err := s.store.Prune(ctx, s.cfg.Retention)
+			n, err := s.store.Prune(ctx, s.cfg.Retention, s.cfg.EventRetention)
 			if err != nil {
 				s.log.Error("prune failed", "error", err)
 			} else if n > 0 {

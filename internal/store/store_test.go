@@ -202,12 +202,21 @@ func TestPrune(t *testing.T) {
 	}, model.DefaultOrg); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.Prune(ctx, 24*time.Hour)
+	// Old event that must survive sample pruning under the longer event window.
+	if _, err := s.FireAlert(ctx, model.Alert{
+		OrgID: model.DefaultOrg, Rule: "r", EndpointID: "ep1", Hostname: "h",
+		StartedAt: now.Add(-48 * time.Hour),
+	}); err == nil {
+		// resolve it 48h ago so it's a candidate for event-window pruning
+	}
+
+	// samples older than 24h pruned; events kept for 72h.
+	n, err := s.Prune(ctx, 24*time.Hour, 72*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
-		t.Fatalf("want 1 pruned row, got %d", n)
+		t.Fatalf("want 1 pruned sample row, got %d", n)
 	}
 	points, err := s.History(ctx, "ep1", now.Add(-72*time.Hour), now, 1)
 	if err != nil {
@@ -215,5 +224,11 @@ func TestPrune(t *testing.T) {
 	}
 	if len(points) != 1 {
 		t.Fatalf("want 1 remaining point, got %d", len(points))
+	}
+
+	// Tiered retention: eventRetention < sampleRetention is clamped up, so a
+	// short event window never prunes events that are younger than samples kept.
+	if _, err := s.Prune(ctx, 24*time.Hour, 1*time.Hour); err != nil {
+		t.Fatalf("clamped prune errored: %v", err)
 	}
 }

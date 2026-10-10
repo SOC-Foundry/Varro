@@ -197,7 +197,9 @@ func runServer(ctx context.Context, args []string) error {
 	dbPath := fs.String("db", "varro.db", "SQLite database path")
 	dbURL := fs.String("db-url", os.Getenv("VARRO_DB_URL"),
 		"Postgres DSN (postgres://...); overrides --db when set")
-	retention := fs.Duration("retention", 72*time.Hour, "how long to keep samples and events")
+	retention := fs.Duration("retention", 72*time.Hour, "how long to keep raw samples")
+	eventRetention := fs.Duration("event-retention", 30*24*time.Hour,
+		"how long to keep security events and resolved alerts (>= --retention)")
 	agentInterval := fs.Duration("agent-interval", 10*time.Second, "sampling interval pushed to agents")
 	allowReenroll := fs.Bool("allow-reenroll", false, "allow an enrolled agent ID to enroll again")
 	rulesPath := fs.String("rules", "", "JSON file of alert rules (default: built-in rules)")
@@ -292,6 +294,7 @@ func runServer(ctx context.Context, args []string) error {
 		Listen:           *listen,
 		Token:            *token,
 		Retention:        *retention,
+		EventRetention:   *eventRetention,
 		AgentInterval:    *agentInterval,
 		AllowReenroll:    *allowReenroll,
 		Rules:            rules,
