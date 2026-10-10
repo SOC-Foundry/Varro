@@ -238,7 +238,8 @@ CREATE TABLE IF NOT EXISTS seen_domains (
 		`ALTER TABLE samples ADD COLUMN pending_updates INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE org_tokens ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
 	} {
-		if _, err := s.db.Exec(stmt); err != nil &&
+		// Route through the dialect rewriter so INTEGER->BIGINT etc. apply on PG.
+		if _, err := s.db.Exec(s.db.ddl(stmt)); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") &&
 			!strings.Contains(err.Error(), "already exists") {
 			return err

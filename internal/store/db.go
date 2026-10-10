@@ -99,8 +99,12 @@ func (d *DB) ddl(schema string) string {
 	if !d.pg {
 		return schema
 	}
-	schema = strings.ReplaceAll(schema, "id          INTEGER PRIMARY KEY", "id          BIGSERIAL PRIMARY KEY")
-	schema = strings.ReplaceAll(schema, "id     INTEGER PRIMARY KEY", "id     BIGSERIAL PRIMARY KEY")
+	// SQLite INTEGER is 64-bit, so the faithful Postgres type is BIGINT, not
+	// INTEGER (int4) — values like mem_total overflow int4. Autoincrement PKs
+	// become BIGSERIAL. Order matters: handle the PK form before the generic
+	// INTEGER->BIGINT pass.
+	schema = strings.ReplaceAll(schema, "INTEGER PRIMARY KEY", "BIGSERIAL PRIMARY KEY")
+	schema = strings.ReplaceAll(schema, "INTEGER", "BIGINT")
 	schema = strings.ReplaceAll(schema, "BLOB", "BYTEA")
 	return schema
 }

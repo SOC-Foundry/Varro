@@ -81,6 +81,8 @@ func main() {
 		err = cli.UserAdmin(ctx, os.Args[2:])
 	case "endpoint-remove":
 		err = cli.EndpointRemove(ctx, os.Args[2:])
+	case "migrate-db":
+		err = runMigrateDB(os.Args[2:])
 	case "inventory":
 		err = cli.Inventory(ctx, os.Args[2:])
 	case "vulns":
@@ -337,6 +339,37 @@ func runServer(ctx context.Context, args []string) error {
 		Backup:      server.BackupConfig{GCS: *backupGCS, Interval: *backupInterval},
 	}, st, log)
 	return srv.Run(ctx)
+}
+
+// runMigrateDB performs a one-time SQLite -> Postgres data copy. The source is
+// a SQLite file; the destination is a Postgres DSN whose schema is created if
+// absent and must otherwise be empty. Stop the collector first so the source is
+// quiescent.
+func runMigrateDB(args []string) error {
+	fs := flag.NewFlagSet("migrate-db", flag.ExitOnError)
+	from := fs.String("from", "varro.db", "source SQLite database file")
+	to := fs.String("to", os.Getenv("VARRO_DB_URL"), "destination Postgres DSN (postgres://...)")
+	fs.Parse(args)
+	if *to == "" || !strings.HasPrefix(*to, "postgres") {
+		return fmt.Errorf("migrate-db requires --to postgres://... (or VARRO_DB_URL)")
+	}
+	fmt.Fprintf(os.Stderr, "migrating %s -> Postgres ...\n", *from)
+	counts, err := store.MigrateData(*from, *to, func(s string) { fmt.Fprintln(os.Stderr, s) })
+	if err != nil {
+		return err
+	}
+	mismatch := 0
+	for t, c := range counts {
+		if c[0] != c[1] {
+			mismatch++
+			fmt.Fprintf(os.Stderr, "MISMATCH %s: src=%d dst=%d\n", t, c[0], c[1])
+		}
+	}
+	if mismatch > 0 {
+		return fmt.Errorf("%d table(s) had row-count mismatches", mismatch)
+	}
+	fmt.Fprintln(os.Stderr, "migration complete; all table row counts match")
+	return nil
 }
 
 func splitNonEmpty(s string) []string {
