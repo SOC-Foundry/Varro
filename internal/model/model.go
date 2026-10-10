@@ -134,6 +134,7 @@ type OutboundConn struct {
 	Local      string `json:"local"`
 	Remote     string `json:"remote"`
 	RemoteName string `json:"remote_name,omitempty"` // reverse-DNS, filled by the server
+	Domain     string `json:"domain,omitempty"`      // forward DNS/SNI name, filled by the agent's watcher
 	PID        int32  `json:"pid"`
 	Process    string `json:"process"`
 }
@@ -169,6 +170,8 @@ const (
 	EventContainerNew    = "container_new"     // container started
 	EventContainerGone   = "container_gone"    // container stopped
 	EventDetection       = "detection"         // behavioral detection fired
+	EventDomainThreatMatch = "domain_threat_match" // connection to a known-malicious domain
+	EventDomainNew         = "domain_new"          // first-seen external domain for this org
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes
@@ -388,6 +391,10 @@ type Flow struct {
 	Remote   string `json:"remote"` // ip:port
 	BytesOut uint64 `json:"bytes_out"`
 	BytesIn  uint64 `json:"bytes_in"`
+	// Domain is the hostname the remote IP was resolved from, when the agent's
+	// passive DNS/SNI watcher observed it (e.g. "api.stripe.com"). Far more
+	// useful than reverse-DNS for CDN/cloud IPs.
+	Domain string `json:"domain,omitempty"`
 }
 
 type InterfaceStats struct {

@@ -210,6 +210,12 @@ CREATE TABLE IF NOT EXISTS edges (
 	PRIMARY KEY (src_id, dst_id, process, dst_port)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_org_seen ON edges(org_id, last_seen);
+CREATE TABLE IF NOT EXISTS seen_domains (
+	org_id     TEXT NOT NULL,
+	domain     TEXT NOT NULL,
+	first_seen INTEGER NOT NULL,
+	PRIMARY KEY (org_id, domain)
+);
 `
 	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err

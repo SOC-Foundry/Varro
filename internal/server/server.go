@@ -55,6 +55,7 @@ type Config struct {
 	ThreatIntel bool     // match connection remotes against known-bad IP feeds
 	ThreatFeeds []string // override the default IP indicator feeds
 	HashFeeds   []string // override the default malware-hash feeds
+	DomainFeeds []string // override the default malicious-domain feeds
 	GeoIP       bool     // enrich external topology remotes with country/ASN (third-party lookups)
 
 	Google       GoogleConfig    // Google sign-in; empty ClientID = open (lab) mode
@@ -85,7 +86,7 @@ func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	s := &Server{cfg: cfg, store: st, log: log,
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(), det: newDetector()}
 	if cfg.ThreatIntel {
-		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds)
+		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds, cfg.DomainFeeds)
 	}
 	if cfg.GeoIP {
 		s.geo = newGeoCache("")
@@ -535,6 +536,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.ti != nil {
 		resp["threat_indicators"] = s.ti.count()
 		resp["malware_hash_indicators"] = s.ti.hashCount()
+		resp["domain_indicators"] = s.ti.domainCount()
 	}
 	writeJSON(w, resp)
 }

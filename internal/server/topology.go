@@ -201,7 +201,7 @@ func (s *Server) handleTopologyReset(w http.ResponseWriter, r *http.Request) {
 // unpatched" case).
 func (s *Server) nodeRisk(ctx context.Context, ep model.EndpointSummary, snap *model.Snapshot, hot map[string]bool) (string, []string) {
 	var reasons []string
-	if hot[model.EventThreatMatch] || hot[model.EventMalwareMatch] {
+	if hot[model.EventThreatMatch] || hot[model.EventMalwareMatch] || hot[model.EventDomainThreatMatch] {
 		reasons = append(reasons, "active threat-intel/malware match")
 	}
 	if hot[model.EventDetection] {
@@ -291,6 +291,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		count   int
 		bytes   uint64
 		remotes map[string]int
+		domains map[string]string // remote IP -> agent-observed domain (DNS/SNI)
 	}
 	ext := map[string]*extAgg{}
 	snaps := map[string]*model.Snapshot{}
@@ -315,11 +316,14 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 			a := ext[id]
 			if a == nil {
-				a = &extAgg{remotes: map[string]int{}}
+				a = &extAgg{remotes: map[string]int{}, domains: map[string]string{}}
 				ext[id] = a
 			}
 			a.count++
 			a.remotes[ip]++
+			if conn.Domain != "" {
+				a.domains[ip] = conn.Domain
+			}
 		}
 		// conntrack byte totals toward non-fleet remotes give the edge weight.
 		for _, fl := range snap.Network.Flows {
@@ -332,12 +336,15 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 			a := ext[id]
 			if a == nil {
-				a = &extAgg{remotes: map[string]int{}}
+				a = &extAgg{remotes: map[string]int{}, domains: map[string]string{}}
 				ext[id] = a
 			}
 			a.bytes += fl.BytesOut + fl.BytesIn
 			if a.remotes[ip] == 0 {
 				a.remotes[ip] = 1 // ensure flow-only remotes still surface
+			}
+			if fl.Domain != "" {
+				a.domains[ip] = fl.Domain
 			}
 		}
 	}
@@ -346,7 +353,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	if evs, err := s.store.Events(r.Context(), "", scope, 500); err == nil {
 		for _, ev := range evs {
 			switch ev.Type {
-			case model.EventDetection, model.EventThreatMatch, model.EventMalwareMatch:
+			case model.EventDetection, model.EventThreatMatch, model.EventMalwareMatch, model.EventDomainThreatMatch:
 				if hotByEndpoint[ev.EndpointID] == nil {
 					hotByEndpoint[ev.EndpointID] = map[string]bool{}
 				}
@@ -389,15 +396,23 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			malicious := false
 			for i := 0; i < len(rcs) && i < 5; i++ {
 				remotes = append(remotes, rcs[i].ip)
-				names = append(names, s.rdns.name(rcs[i].ip))
+				// Prefer the forward domain the agent observed (DNS/SNI) — the
+				// real website — over a reverse-DNS PTR, which is useless for
+				// CDN/cloud IPs.
+				name := a.domains[rcs[i].ip]
+				if name == "" {
+					name = s.rdns.name(rcs[i].ip)
+				}
+				names = append(names, name)
 				if s.geo != nil {
 					geo = append(geo, s.geo.label(rcs[i].ip))
 				}
 			}
-			// Flag the edge if any remote (not just the top 5) is known-bad.
+			// Flag the edge if any remote (not just the top 5) is a known-bad IP
+			// or resolved to a known-bad domain.
 			if s.ti != nil {
 				for ip := range a.remotes {
-					if s.ti.isBad(ip) {
+					if s.ti.isBad(ip) || s.ti.isBadDomain(a.domains[ip]) {
 						malicious = true
 						break
 					}

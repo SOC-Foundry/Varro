@@ -58,6 +58,7 @@ type Collector struct {
 	cloudChecked   bool
 
 	execTracer execDrainer // eBPF exec sensor, nil when unavailable
+	dns        dnsLookup   // passive DNS watcher, nil when unavailable
 
 	lastPosture     []model.PostureCheck
 	lastPostureScan time.Time
@@ -80,6 +81,16 @@ type execDrainer interface {
 // SetExecTracer attaches the kernel exec sensor; drained events ride along on
 // each snapshot.
 func (c *Collector) SetExecTracer(t execDrainer) { c.execTracer = t }
+
+// dnsLookup resolves a remote IP to the hostname the host looked it up by, so
+// flows/connections can be labeled with real domains.
+type dnsLookup interface {
+	Lookup(ip string) string
+}
+
+// SetDNSResolver attaches the passive DNS watcher; its IP->domain cache labels
+// external flows and connections on each snapshot.
+func (c *Collector) SetDNSResolver(d dnsLookup) { c.dns = d }
 
 // New builds a Collector reporting as the given agent ID (see the agent
 // package for how identity is derived and persisted).
@@ -163,8 +174,37 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 		}
 	}
 	snap.Inventory = c.pendingInv
+	c.attachDomains(snap)
 
 	return snap, nil
+}
+
+// attachDomains labels external flows and connections with the hostname the
+// host resolved the remote IP by (from the passive DNS watcher), so topology
+// shows real websites rather than reverse-DNS PTRs.
+func (c *Collector) attachDomains(snap *model.Snapshot) {
+	if c.dns == nil {
+		return
+	}
+	for i := range snap.Network.Flows {
+		if ip, _ := splitHostPort(snap.Network.Flows[i].Remote); ip != "" {
+			snap.Network.Flows[i].Domain = c.dns.Lookup(ip)
+		}
+	}
+	for i := range snap.Security.Connections {
+		if ip, _ := splitHostPort(snap.Security.Connections[i].Remote); ip != "" {
+			snap.Security.Connections[i].Domain = c.dns.Lookup(ip)
+		}
+	}
+}
+
+// splitHostPort splits "ip:port" or "[v6]:port" into the bare IP (port ignored).
+func splitHostPort(remote string) (ip string, port string) {
+	i := strings.LastIndexByte(remote, ':')
+	if i < 0 {
+		return remote, ""
+	}
+	return strings.Trim(remote[:i], "[]"), remote[i+1:]
 }
 
 func (c *Collector) sampleCPU(ctx context.Context, snap *model.Snapshot) {

@@ -164,6 +164,8 @@ func runAgent(ctx context.Context, args []string) error {
 	token := fs.String("token", envOr("VARRO_TOKEN", ""), "enrollment token")
 	interval := fs.Duration("interval", 10*time.Second, "sampling interval (server config may override)")
 	stateDir := fs.String("state-dir", defaultStateDir(), "directory for agent token and offline spool")
+	captureDNS := fs.Bool("capture-dns", true,
+		"passively observe DNS responses to label topology with real domains (Linux, local-only, needs root)")
 	fs.Parse(args)
 	if *serverURL == "" {
 		return fmt.Errorf("agent requires --server (or VARRO_SERVER)")
@@ -175,6 +177,7 @@ func runAgent(ctx context.Context, args []string) error {
 		EnrollToken: *token,
 		Interval:    *interval,
 		StateDir:    *stateDir,
+		CaptureDNS:  *captureDNS,
 	}, log)
 	if err != nil {
 		return err
@@ -198,7 +201,7 @@ func runServer(ctx context.Context, args []string) error {
 	rulesPath := fs.String("rules", "", "JSON file of alert rules (default: built-in rules)")
 	webhookURL := fs.String("webhook-url", envOr("VARRO_WEBHOOK_URL", ""), "generic JSON webhook for notifications")
 	slackURL := fs.String("slack-webhook-url", envOr("VARRO_SLACK_WEBHOOK_URL", ""), "Slack incoming-webhook URL")
-	notifyEvents := fs.String("notify-events", "detection,threat_match,malware_match,autostart_change,nic_new,listen_new,suid_change,identity_change",
+	notifyEvents := fs.String("notify-events", "detection,threat_match,malware_match,domain_threat_match,autostart_change,nic_new,listen_new,suid_change,identity_change",
 		"comma-separated event types forwarded to notifiers (empty to disable)")
 	smtpHost := fs.String("smtp-host", "", "SMTP host for email notifications")
 	smtpPort := fs.Int("smtp-port", 587, "SMTP port")
@@ -234,6 +237,8 @@ func runServer(ctx context.Context, args []string) error {
 		"comma-separated IP indicator feed URLs (default: Feodo Tracker C2 list)")
 	hashFeeds := fs.String("threat-hash-feeds", "",
 		"comma-separated malware-hash feed URLs (default: MalwareBazaar recent sha256)")
+	domainFeeds := fs.String("threat-domain-feeds", "",
+		"comma-separated malicious-domain feed URLs (default: URLhaus hostfile)")
 	geoip := fs.Bool("geoip", false,
 		"enrich external topology remotes with country/ASN (sends observed remote IPs to a third-party lookup service)")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
@@ -317,6 +322,7 @@ func runServer(ctx context.Context, args []string) error {
 		ThreatIntel:  *threatIntel,
 		ThreatFeeds:  splitNonEmpty(*threatFeeds),
 		HashFeeds:    splitNonEmpty(*hashFeeds),
+		DomainFeeds:  splitNonEmpty(*domainFeeds),
 		GeoIP:        *geoip,
 		AgentDesiredVersion: func() string {
 			if !*autoUpgrade {

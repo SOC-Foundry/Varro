@@ -41,6 +41,7 @@ type Config struct {
 	EnrollToken string        // shared enrollment token (used only to obtain a per-agent token)
 	Interval    time.Duration // initial sampling interval; the server may override it
 	StateDir    string        // where the per-agent token and spool live
+	CaptureDNS  bool          // passively observe DNS to label topology with real domains (Linux)
 }
 
 type Agent struct {
@@ -75,6 +76,17 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		log.Info("eBPF exec sensor active")
 	} else {
 		log.Info("eBPF exec sensor unavailable, continuing without it", "reason", err)
+	}
+
+	// Best-effort passive DNS watcher; labels topology with real domains.
+	// Local-only observation, Linux + CAP_NET_RAW; off unless enabled.
+	if cfg.CaptureDNS {
+		if w, err := collect.StartDNSWatch(); err == nil {
+			c.SetDNSResolver(w)
+			log.Info("passive DNS watcher active")
+		} else {
+			log.Info("passive DNS watcher unavailable, continuing without it", "reason", err)
+		}
 	}
 
 	return &Agent{
