@@ -465,11 +465,11 @@ func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"collected_at": ts,
-		"kernel":       inv.Kernel,
-		"manager":      inv.Manager,
+		"collected_at":  ts,
+		"kernel":        inv.Kernel,
+		"manager":       inv.Manager,
 		"package_count": len(inv.Packages),
-		"packages":     inv.Packages,
+		"packages":      inv.Packages,
 	})
 }
 

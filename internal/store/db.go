@@ -78,6 +78,7 @@ func (d *DB) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Ro
 func (d *DB) Exec(q string, args ...any) (sql.Result, error) {
 	return d.sdb.Exec(rebind(d.pg, q), args...)
 }
+
 // insertReturningID runs an INSERT and returns the generated id. Postgres has
 // no LastInsertId, so it uses RETURNING id; SQLite uses LastInsertId.
 func (d *DB) insertReturningID(ctx context.Context, query string, args ...any) (int64, error) {

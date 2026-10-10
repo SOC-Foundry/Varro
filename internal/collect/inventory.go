@@ -81,4 +81,3 @@ func (c *Collector) sampleInventory(ctx context.Context, now time.Time, snap *mo
 // InventoryDelivered is called by the agent once a batch containing the
 // pending inventory has been accepted by the collector.
 func (c *Collector) InventoryDelivered() { c.pendingInv = nil }
-

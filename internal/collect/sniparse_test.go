@@ -11,11 +11,11 @@ func buildClientHello(sni string) []byte {
 	ext := append([]byte{0x00, 0x00, byte(len(sniList) >> 8), byte(len(sniList))}, sniList...) // ext_type=0, len, data
 	exts := append([]byte{byte(len(ext) >> 8), byte(len(ext))}, ext...)
 
-	body := []byte{0x03, 0x03} // client version TLS1.2
-	body = append(body, make([]byte, 32)...) // random
-	body = append(body, 0x00)                // session_id len 0
+	body := []byte{0x03, 0x03}                  // client version TLS1.2
+	body = append(body, make([]byte, 32)...)    // random
+	body = append(body, 0x00)                   // session_id len 0
 	body = append(body, 0x00, 0x02, 0x13, 0x01) // cipher_suites: len 2 + one suite
-	body = append(body, 0x01, 0x00)          // compression: len 1 + null
+	body = append(body, 0x01, 0x00)             // compression: len 1 + null
 	body = append(body, exts...)
 
 	hs := append([]byte{0x01, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}, body...) // ClientHello

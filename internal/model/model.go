@@ -148,28 +148,28 @@ type SessionInfo struct {
 
 // Event types emitted by the agent.
 const (
-	EventProcessNew      = "process_new"
-	EventListenNew       = "listen_new"
-	EventNICNew          = "nic_new"
-	EventAutostartChange = "autostart_change"
-	EventUserLogin       = "user_login"
-	EventAuthFailures    = "auth_failures"
-	EventIdentityChange  = "identity_change" // passwd/group/sudoers/authorized_keys
-	EventSUIDChange      = "suid_change"
-	EventPkgInstall      = "pkg_install"
-	EventPkgRemove       = "pkg_remove"
-	EventPkgUpgrade      = "pkg_upgrade"
-	EventPostureChange   = "posture_change"
-	EventServiceFailed   = "service_failed"
-	EventRebootRequired  = "reboot_required"
-	EventFIMChange       = "fim_change"
-	EventConnNewInternal = "conn_new_internal" // first-seen fleet-internal communication path
-	EventVulnNew         = "vuln_new"          // package newly matched to a known vulnerability
-	EventThreatMatch     = "threat_match"      // connection to a known-malicious indicator
-	EventMalwareMatch    = "malware_match"     // process binary matched a known-malware hash
-	EventContainerNew    = "container_new"     // container started
-	EventContainerGone   = "container_gone"    // container stopped
-	EventDetection       = "detection"         // behavioral detection fired
+	EventProcessNew        = "process_new"
+	EventListenNew         = "listen_new"
+	EventNICNew            = "nic_new"
+	EventAutostartChange   = "autostart_change"
+	EventUserLogin         = "user_login"
+	EventAuthFailures      = "auth_failures"
+	EventIdentityChange    = "identity_change" // passwd/group/sudoers/authorized_keys
+	EventSUIDChange        = "suid_change"
+	EventPkgInstall        = "pkg_install"
+	EventPkgRemove         = "pkg_remove"
+	EventPkgUpgrade        = "pkg_upgrade"
+	EventPostureChange     = "posture_change"
+	EventServiceFailed     = "service_failed"
+	EventRebootRequired    = "reboot_required"
+	EventFIMChange         = "fim_change"
+	EventConnNewInternal   = "conn_new_internal"   // first-seen fleet-internal communication path
+	EventVulnNew           = "vuln_new"            // package newly matched to a known vulnerability
+	EventThreatMatch       = "threat_match"        // connection to a known-malicious indicator
+	EventMalwareMatch      = "malware_match"       // process binary matched a known-malware hash
+	EventContainerNew      = "container_new"       // container started
+	EventContainerGone     = "container_gone"      // container stopped
+	EventDetection         = "detection"           // behavioral detection fired
 	EventDomainThreatMatch = "domain_threat_match" // connection to a known-malicious domain
 	EventDomainNew         = "domain_new"          // first-seen external domain for this org
 )
@@ -252,18 +252,18 @@ type EdgeProcess struct {
 }
 
 type TopoEdge struct {
-	Src       string        `json:"src"`
-	Dst       string        `json:"dst"` // endpoint ID, or "internet"
-	Internal  bool          `json:"internal"`
-	Processes []EdgeProcess `json:"processes"`
-	Count     int           `json:"count"` // external: connection count; internal: process/port pairs
-	Bytes     uint64        `json:"bytes,omitempty"` // external: total conntrack bytes to these remotes
-	FirstSeen time.Time     `json:"first_seen,omitempty"`
-	LastSeen  time.Time     `json:"last_seen,omitempty"`
-	Remotes     []string `json:"remotes,omitempty"`      // external edges: sample remote IPs
-	RemoteNames []string `json:"remote_names,omitempty"` // reverse-DNS of Remotes, same order ("" when unresolved)
-	RemoteGeo   []string `json:"remote_geo,omitempty"`   // "country/ASN" of Remotes, same order (when GeoIP enabled)
-	Malicious   bool     `json:"malicious,omitempty"`    // a remote matches the threat-intel feed
+	Src         string        `json:"src"`
+	Dst         string        `json:"dst"` // endpoint ID, or "internet"
+	Internal    bool          `json:"internal"`
+	Processes   []EdgeProcess `json:"processes"`
+	Count       int           `json:"count"`           // external: connection count; internal: process/port pairs
+	Bytes       uint64        `json:"bytes,omitempty"` // external: total conntrack bytes to these remotes
+	FirstSeen   time.Time     `json:"first_seen,omitempty"`
+	LastSeen    time.Time     `json:"last_seen,omitempty"`
+	Remotes     []string      `json:"remotes,omitempty"`      // external edges: sample remote IPs
+	RemoteNames []string      `json:"remote_names,omitempty"` // reverse-DNS of Remotes, same order ("" when unresolved)
+	RemoteGeo   []string      `json:"remote_geo,omitempty"`   // "country/ASN" of Remotes, same order (when GeoIP enabled)
+	Malicious   bool          `json:"malicious,omitempty"`    // a remote matches the threat-intel feed
 }
 
 type Event struct {
@@ -402,12 +402,12 @@ type InterfaceStats struct {
 	Addrs       []string `json:"addrs,omitempty"` // non-loopback, non-link-local IPs
 	BytesSent   uint64   `json:"bytes_sent"`
 	BytesRecv   uint64   `json:"bytes_recv"`
-	PacketsSent uint64  `json:"packets_sent"`
-	PacketsRecv uint64  `json:"packets_recv"`
-	ErrIn       uint64  `json:"err_in"`
-	ErrOut      uint64  `json:"err_out"`
-	RxRate      float64 `json:"rx_rate_bps"` // computed from deltas, 0 on first sample
-	TxRate      float64 `json:"tx_rate_bps"`
+	PacketsSent uint64   `json:"packets_sent"`
+	PacketsRecv uint64   `json:"packets_recv"`
+	ErrIn       uint64   `json:"err_in"`
+	ErrOut      uint64   `json:"err_out"`
+	RxRate      float64  `json:"rx_rate_bps"` // computed from deltas, 0 on first sample
+	TxRate      float64  `json:"tx_rate_bps"`
 }
 
 type ProcessInfo struct {

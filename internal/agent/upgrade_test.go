@@ -13,12 +13,12 @@ func TestShouldUpgrade(t *testing.T) {
 		want             bool
 	}{
 		{"v0.4.1", "v0.4.2", true},
-		{"0.4.1", "v0.4.2", true},   // bare current vs tagged desired
-		{"v0.4.2", "0.4.2", false},  // same version, mixed prefixes
-		{"v0.4.2", "v0.4.1", true},  // rollback is a valid upgrade direction
-		{"dev", "v0.4.2", false},    // dev builds never self-replace
-		{"v0.4.1", "dev", false},    // never "upgrade" to a dev version
-		{"v0.4.1", "", false},       // upgrades disabled server-side
+		{"0.4.1", "v0.4.2", true},  // bare current vs tagged desired
+		{"v0.4.2", "0.4.2", false}, // same version, mixed prefixes
+		{"v0.4.2", "v0.4.1", true}, // rollback is a valid upgrade direction
+		{"dev", "v0.4.2", false},   // dev builds never self-replace
+		{"v0.4.1", "dev", false},   // never "upgrade" to a dev version
+		{"v0.4.1", "", false},      // upgrades disabled server-side
 		{"", "v0.4.2", false},
 	}
 	for _, c := range cases {

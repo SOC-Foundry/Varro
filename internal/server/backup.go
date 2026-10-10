@@ -21,7 +21,7 @@ import (
 // VM's metadata service-account token — no key files, no gsutil.
 
 type BackupConfig struct {
-	GCS      string        // gs://bucket/prefix
+	GCS      string // gs://bucket/prefix
 	Interval time.Duration
 }
 

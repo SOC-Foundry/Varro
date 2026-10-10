@@ -65,9 +65,9 @@ type Collector struct {
 	lastHealth      model.HealthStatus
 	lastHealthScan  time.Time
 
-	fimMu    sync.Mutex
-	fimPaths []string
-	fimState map[string]fimEntry
+	fimMu         sync.Mutex
+	fimPaths      []string
+	fimState      map[string]fimEntry
 	authLogPath   string
 	authLogOffset int64
 }

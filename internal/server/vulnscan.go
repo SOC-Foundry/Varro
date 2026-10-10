@@ -16,11 +16,11 @@ const (
 	osvBatchURL = "https://api.osv.dev/v1/querybatch"
 	osvVulnURL  = "https://api.osv.dev/v1/vulns/"
 
-	vulnCheckEvery   = 1 * time.Hour  // how often the loop looks for work
-	vulnRescanEvery  = 24 * time.Hour // full rescan cadence (new CVEs publish daily)
-	osvBatchMax      = 950            // querybatch limit is 1000
-	detailFetchCap   = 60             // detail lookups per cycle
-	vulnEventCap     = 15             // vuln_new events per endpoint per scan
+	vulnCheckEvery  = 1 * time.Hour  // how often the loop looks for work
+	vulnRescanEvery = 24 * time.Hour // full rescan cadence (new CVEs publish daily)
+	osvBatchMax     = 950            // querybatch limit is 1000
+	detailFetchCap  = 60             // detail lookups per cycle
+	vulnEventCap    = 15             // vuln_new events per endpoint per scan
 )
 
 // osvEcosystem maps an endpoint's package manager + platform to an OSV

@@ -36,8 +36,8 @@ func (c *Collector) sampleFlows(snap *model.Snapshot) {
 	// Aggregate by remote ip:port, summing original-direction (out) and
 	// reply-direction (in) bytes.
 	type agg struct {
-		proto    string
-		out, in  uint64
+		proto   string
+		out, in uint64
 	}
 	flows := map[string]*agg{}
 

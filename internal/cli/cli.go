@@ -306,7 +306,7 @@ func renderTop(s *model.Snapshot) {
 	b.WriteString("\x1b[H\x1b[2J")
 	fmt.Fprintf(&b, "\x1b[1m%s\x1b[0m  %s %s · up %s · load %.2f %.2f %.2f · %s\n\n",
 		s.Hostname, s.Host.Platform, s.Host.PlatformVersion,
-		(time.Duration(s.Host.Uptime)*time.Second).Truncate(time.Minute),
+		(time.Duration(s.Host.Uptime) * time.Second).Truncate(time.Minute),
 		s.CPU.Load1, s.CPU.Load5, s.CPU.Load15,
 		s.Timestamp.Local().Format("15:04:05"))
 

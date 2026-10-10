@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	maxFIMFiles    = 500       // total files tracked across all watch paths
-	maxFIMFileSize = 64 << 20  // files larger than this are fingerprinted only
-	maxFIMEvents   = 20        // per sample
+	maxFIMFiles    = 500      // total files tracked across all watch paths
+	maxFIMFileSize = 64 << 20 // files larger than this are fingerprinted only
+	maxFIMEvents   = 20       // per sample
 )
 
 type fimEntry struct {

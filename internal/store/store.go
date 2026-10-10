@@ -303,7 +303,7 @@ ON CONFLICT(id) DO UPDATE SET
 	hostname=excluded.hostname, os=excluded.os, platform=excluded.platform,
 	arch=excluded.arch, cores=excluded.cores, mem_total=excluded.mem_total,
 	agent_version=excluded.agent_version, org_id=excluded.org_id,
-	last_seen=` + s.db.greatest("endpoints.last_seen", "excluded.last_seen"))
+	last_seen=`+s.db.greatest("endpoints.last_seen", "excluded.last_seen"))
 	if err != nil {
 		return err
 	}
@@ -780,12 +780,12 @@ FROM alerts WHERE 1=1` + filter
 // is interpolated into SQL so it must never come from untrusted input
 // directly.
 var metricColumns = map[string]string{
-	"cpu_pct":      "cpu_pct",
-	"mem_pct":      "mem_pct",
-	"disk_pct":     "disk_pct",
-	"swap_pct":     "swap_pct",
-	"rx_rate":      "rx_rate",
-	"tx_rate":      "tx_rate",
+	"cpu_pct":         "cpu_pct",
+	"mem_pct":         "mem_pct",
+	"disk_pct":        "disk_pct",
+	"swap_pct":        "swap_pct",
+	"rx_rate":         "rx_rate",
+	"tx_rate":         "tx_rate",
 	"max_temp_c":      "max_temp",
 	"io_read_bps":     "io_read_bps",
 	"io_write_bps":    "io_write_bps",
