@@ -92,11 +92,15 @@ func (s *Server) buildReport(ctx context.Context, scope []string) (model.Complia
 		rep.PostureScore = rep.PosturePass * 100 / tot
 	}
 
-	rep.Vulns, err = s.store.VulnSeverityCounts(ctx, scope)
+	rawVulns, err := s.store.VulnSeverityCounts(ctx, scope)
 	if err != nil {
 		return rep, err
 	}
-	for _, n := range rep.Vulns {
+	// Fold raw severities (qualitative labels or CVSS vectors) into standard
+	// buckets so the rollup is meaningful rather than one row per CVSS vector.
+	rep.Vulns = map[string]int{}
+	for raw, n := range rawVulns {
+		rep.Vulns[normalizeSeverity(raw)] += n
 		rep.VulnTotal += n
 	}
 	return rep, nil

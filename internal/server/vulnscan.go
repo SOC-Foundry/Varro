@@ -233,8 +233,18 @@ func (s *Server) fetchVulnDetails(ctx context.Context) bool {
 		if sv, ok := detail.DatabaseSpecific["severity"].(string); ok {
 			severity = sv
 		} else if len(detail.Severity) > 0 {
-			severity = detail.Severity[0].Score // CVSS vector string
+			// Prefer the highest-version CVSS vector available for scoring.
+			severity = detail.Severity[0].Score
+			for _, sv := range detail.Severity {
+				if strings.HasPrefix(sv.Score, "CVSS:4") {
+					severity = sv.Score
+					break
+				}
+			}
 		}
+		// Store a normalized bucket (critical/high/medium/low/unknown) rather
+		// than a raw CVSS vector, so the per-endpoint view and reports group cleanly.
+		severity = normalizeSeverity(severity)
 		summary := detail.Summary
 		if summary == "" {
 			summary = detail.Details
@@ -266,6 +276,11 @@ func (s *Server) handleEndpointVulns(w http.ResponseWriter, r *http.Request) {
 	}
 	if vulns == nil {
 		vulns = []model.Vulnerability{}
+	}
+	// Normalize severities on read so findings cached before bucketing (raw CVSS
+	// vectors) still display as clean labels without a re-scan.
+	for i := range vulns {
+		vulns[i].Severity = normalizeSeverity(vulns[i].Severity)
 	}
 	scannedAt, _, _ := s.store.VulnScanState(r.Context(), id)
 	supported := false
