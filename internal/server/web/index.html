@@ -140,6 +140,9 @@
     <a href="#" id="topoLink" style="color:var(--accent); font-size:13px">⇄ Topology</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="flowsLink" style="color:var(--accent); font-size:13px">🌍 Flows &amp; talkers</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="reportLink" style="color:var(--accent); font-size:13px">📋 Compliance report</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
@@ -314,6 +317,30 @@
     </div>
     <div id="topoLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:8px"></div>
     <div id="topoInfo" class="card" style="margin-top:10px; display:none"></div>
+  </div>
+
+  <div id="flowsView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Flows &amp; talkers</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">where your fleet's traffic goes · by conntrack byte volume</span>
+      <a href="#" id="flowsBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <span id="flowsRanges" style="display:flex; gap:4px"></span>
+      <button class="abtn" id="flowsCsv" style="color:var(--accent)">⬇ CSV</button>
+    </header>
+    <div class="card" style="padding:6px">
+      <canvas id="flowMap" style="width:100%; height:46vh; display:block; touch-action:none"></canvas>
+    </div>
+    <div id="flowsLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin:8px 0"></div>
+    <div class="card" style="overflow-x:auto">
+      <table id="flowsTable" style="width:100%; min-width:560px">
+        <thead><tr>
+          <th>Destination</th><th>Geo</th>
+          <th class="num">Bytes</th><th class="num">Conns</th><th class="num">Hosts</th>
+        </tr></thead>
+        <tbody id="flowsRows"></tbody>
+      </table>
+    </div>
   </div>
 
   <div id="adminView" style="display:none">
@@ -552,7 +579,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -876,6 +903,7 @@ function setupAdmin(me) {
 function showAdmin(on) {
   adminMode = on;
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+  if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -993,6 +1021,7 @@ function showDownload(on) {
   $("downloadView").style.display = on ? "block" : "none";
   $("detail").style.display = on ? "none" : "block";
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+  if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1016,6 +1045,7 @@ function showReport(on) {
     if (topoMode) showTopo(false);
     showAdmin(false);
     if (dlMode) showDownload(false);
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1170,6 +1200,170 @@ async function revokeApiToken(id, name) {
   } catch (e) { oops(e); }
 }
 
+/* ---- flows & talkers view ---- */
+// ISO-3166 alpha-2 → [lat, lon] rough country centroids, enough to place the
+// destinations fleet traffic actually reaches. Unlisted countries still appear
+// in the table, just not on the map.
+const COUNTRY_LL = {
+  US:[39.8,-98.6],CA:[56,-106],MX:[23,-102],BR:[-10,-52],AR:[-38,-63],CL:[-35,-71],CO:[4,-73],PE:[-10,-76],
+  GB:[54,-2],IE:[53,-8],FR:[46,2],DE:[51,10],NL:[52,5],BE:[50.6,4.6],LU:[49.8,6],CH:[47,8],AT:[47.5,14],
+  ES:[40,-4],PT:[39.5,-8],IT:[42.8,12.8],SE:[62,15],NO:[62,10],FI:[64,26],DK:[56,10],IS:[65,-18],
+  PL:[52,19],CZ:[49.8,15.5],SK:[48.7,19.7],HU:[47,20],RO:[46,25],BG:[42.7,25.5],GR:[39,22],HR:[45.1,15.5],
+  RS:[44,21],SI:[46.1,14.8],LT:[55.2,24],LV:[56.9,24.6],EE:[58.6,25],UA:[49,32],RU:[61,100],TR:[39,35],
+  IL:[31,35],AE:[24,54],SA:[24,45],QA:[25.3,51.2],EG:[26,30],ZA:[-29,24],NG:[9,8],KE:[0.2,37.9],MA:[32,-6],
+  IN:[22,79],CN:[35,105],JP:[36,138],KR:[36.5,128],TW:[23.7,121],HK:[22.3,114.2],SG:[1.35,103.8],
+  TH:[15,101],VN:[16,108],ID:[-2,118],MY:[4,102],PH:[13,122],AU:[-25,134],NZ:[-41,174],BD:[24,90],PK:[30,70],
+};
+let flowsMode = false, flowsData = [], flowsWindow = 60, flowsAnim = null;
+
+$("flowsLink").onclick = e => { e.preventDefault(); closeSidebar(); showFlows(true); };
+$("flowsBack").onclick = e => { e.preventDefault(); showFlows(false); };
+$("flowsCsv").onclick = () => downloadFlowsCsv();
+
+function showFlows(on) {
+  flowsMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    flowsMode = true;
+    $("flowsView").style.display = "block";
+    $("detail").style.display = "none";
+    setupFlowRanges();
+    loadFlows();
+    if (!flowsAnim) tickFlowMap();
+  } else {
+    $("flowsView").style.display = "none";
+    cancelAnimationFrame(flowsAnim); flowsAnim = null;
+    refreshEndpoints();
+  }
+}
+
+function setupFlowRanges() {
+  if (setupFlowRanges.done) return;
+  const box = $("flowsRanges");
+  box.innerHTML = "";
+  for (const [label, m] of [["1h", 60], ["24h", 1440], ["7d", 10080]]) {
+    const b = document.createElement("button");
+    b.className = "abtn"; b.textContent = label;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (m === flowsWindow ? ";color:var(--accent);border-color:var(--accent)" : "");
+    b.onclick = () => { flowsWindow = m; setupFlowRanges.done = false; setupFlowRanges(); loadFlows(); };
+    box.appendChild(b);
+  }
+  setupFlowRanges.done = true;
+}
+
+async function loadFlows() {
+  try {
+    const r = await getJSON(orgQ("/api/v1/flows?minutes=" + flowsWindow));
+    flowsData = r.talkers || [];
+    renderFlowsTable();
+  } catch (e) { $("flowsRows").innerHTML = `<tr><td colspan="5" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderFlowsTable() {
+  const rows = $("flowsRows");
+  if (!flowsData.length) { rows.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no external flows in this window</td></tr>`; }
+  else rows.innerHTML = flowsData.map(t => {
+    const mal = t.malicious ? ' <span style="color:var(--red)">⚠</span>' : "";
+    return `<tr>
+      <td style="font-family:var(--mono)">${esc(t.dest)}${mal}</td>
+      <td style="color:var(--amber);font-size:12px">${esc(t.geo || "—")}</td>
+      <td class="num" style="font-family:var(--mono)">${fmtBytes(t.bytes, "")}</td>
+      <td class="num">${t.count}</td>
+      <td class="num">${t.sources}</td>
+    </tr>`;
+  }).join("");
+  const total = flowsData.reduce((s, t) => s + t.bytes, 0);
+  $("flowsLegend").innerHTML = `${flowsData.length} destination${flowsData.length === 1 ? "" : "s"} · ${fmtBytes(total, "")} total` +
+    (flowsData.some(t => t.malicious) ? ` · <span style="color:var(--red)">${flowsData.filter(t => t.malicious).length} malicious</span>` : "");
+}
+
+function downloadFlowsCsv() {
+  const rows = [["destination", "geo", "country", "bytes", "connections", "hosts", "malicious"]];
+  for (const t of flowsData) rows.push([t.dest, t.geo || "", t.country || "", t.bytes, t.count, t.sources, t.malicious ? "yes" : "no"]);
+  const csv = rows.map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "varro-flows.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// project lon/lat onto an equirectangular canvas.
+const projX = (lon, w) => (lon + 180) / 360 * w;
+const projY = (lat, h) => (90 - lat) / 180 * h;
+
+function tickFlowMap() {
+  flowsAnim = requestAnimationFrame(tickFlowMap);
+  if (document.hidden || !flowsMode) return;
+  const c = $("flowMap");
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  // graticule
+  ctx.strokeStyle = "#1c2330"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let lon = -150; lon <= 150; lon += 30) { const x = projX(lon, w); ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for (let lat = -60; lat <= 60; lat += 30) { const y = projY(lat, h); ctx.moveTo(0, y); ctx.lineTo(w, y); }
+  ctx.stroke();
+  // equator a touch brighter
+  ctx.strokeStyle = "#263040"; ctx.beginPath();
+  ctx.moveTo(0, projY(0, h)); ctx.lineTo(w, projY(0, h)); ctx.stroke();
+
+  // fleet origin (abstract anchor, bottom-centre)
+  const home = { x: w * 0.5, y: h * 0.9 };
+
+  // destinations with a known country centroid
+  const plotted = flowsData.filter(t => t.country && COUNTRY_LL[t.country]);
+  const maxB = Math.max(1, ...plotted.map(t => t.bytes));
+  const dots = plotted.map(t => {
+    const [lat, lon] = COUNTRY_LL[t.country];
+    return { t, x: projX(lon, w), y: projY(lat, h), r: 3 + 9 * Math.sqrt(t.bytes / maxB) };
+  });
+
+  // arcs + animated particles (speed/density scale with byte share)
+  const now = performance.now() / 1000;
+  for (const d of dots) {
+    const cx = (home.x + d.x) / 2, cy = Math.min(home.y, d.y) - 60;
+    ctx.strokeStyle = d.t.malicious ? "rgba(248,81,73,.35)" : "rgba(88,166,255,.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(home.x, home.y); ctx.quadraticCurveTo(cx, cy, d.x, d.y); ctx.stroke();
+    const share = d.t.bytes / maxB;
+    const n = 1 + Math.round(share * 4);
+    for (let i = 0; i < n; i++) {
+      const tt = ((now * (0.25 + share * 0.5) + i / n) % 1);
+      const u = 1 - tt;
+      const px = u * u * home.x + 2 * u * tt * cx + tt * tt * d.x;
+      const py = u * u * home.y + 2 * u * tt * cy + tt * tt * d.y;
+      ctx.fillStyle = d.t.malicious ? "#f85149" : "#58a6ff";
+      ctx.beginPath(); ctx.arc(px, py, 1.6, 0, 7); ctx.fill();
+    }
+  }
+  // destination dots
+  for (const d of dots) {
+    ctx.fillStyle = d.t.malicious ? "rgba(248,81,73,.9)" : "rgba(63,185,80,.85)";
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill();
+    ctx.fillStyle = "#8b949e"; ctx.font = "10px ui-monospace,monospace";
+    ctx.fillText(d.t.dest.length > 22 ? d.t.dest.slice(0, 21) + "…" : d.t.dest, d.x + d.r + 3, d.y + 3);
+  }
+  // home marker
+  ctx.fillStyle = "#e6edf3"; ctx.beginPath(); ctx.arc(home.x, home.y, 5, 0, 7); ctx.fill();
+  ctx.fillStyle = "#8b949e"; ctx.font = "11px ui-monospace,monospace"; ctx.textAlign = "center";
+  ctx.fillText("fleet", home.x, home.y + 18); ctx.textAlign = "left";
+  if (!dots.length) {
+    ctx.fillStyle = "#8b949e"; ctx.font = "13px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("no geo-located destinations in this window (enable --geoip on the collector)", w / 2, h / 2);
+    ctx.textAlign = "left";
+  }
+}
+
 /* ---- topology view ---- */
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
@@ -1222,6 +1416,7 @@ let topoSearch = "";
 function showTopo(on) {
   topoMode = on;
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+  if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

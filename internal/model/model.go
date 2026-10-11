@@ -489,6 +489,18 @@ type ComplianceReport struct {
 	FailedServices int            `json:"failed_services"` // endpoints with a failed service
 }
 
+// FlowTalker is one external destination in the fleet's top-talkers rollup:
+// total bytes, connection count, and how many fleet hosts reached it.
+type FlowTalker struct {
+	Dest      string `json:"dest"`              // domain or "internet"
+	Bytes     uint64 `json:"bytes"`             // total conntrack bytes (in+out)
+	Count     int    `json:"count"`             // connection count
+	Sources   int    `json:"sources"`           // distinct fleet hosts talking to it
+	Geo       string `json:"geo,omitempty"`     // "US · AS15169 Google" style
+	Country   string `json:"country,omitempty"` // ISO alpha-2, for the map
+	Malicious bool   `json:"malicious,omitempty"`
+}
+
 // PostureStat aggregates one CIS-lite check across the fleet.
 type PostureStat struct {
 	ID   string `json:"id"`
