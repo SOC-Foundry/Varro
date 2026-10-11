@@ -142,6 +142,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.handleRevokeUserToken)
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/audit", s.handleAudit)
+	mux.HandleFunc("GET /api/v1/report", s.handleReport)
 	mux.HandleFunc("GET /api/v1/orgs", s.handleOrgsList)
 	mux.HandleFunc("POST /api/v1/orgs", s.handleOrgCreate)
 	mux.HandleFunc("PUT /api/v1/orgs/{id}", s.handleOrgUpdate)

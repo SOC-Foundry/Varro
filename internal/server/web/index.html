@@ -108,6 +108,15 @@
   td { padding: 4px 8px; border-bottom: 1px solid #1c2128; white-space: nowrap; }
   td.num, th.num { text-align: right; }
   td.cmd { max-width: 420px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+  .rcard { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; min-width: 190px; flex: 1; }
+  .rcard-h { color: var(--dim); font-size: 12px; margin-bottom: 6px; }
+  @media print {
+    #sidebar, #menuBtn, #reportCsv, #reportPrint, #reportBack { display: none !important; }
+    body, #main { display: block !important; }
+    .rcard { break-inside: avoid; border-color: #ccc; }
+    * { color: #000 !important; background: #fff !important; }
+    tr, .rcard { border-color: #ccc !important; }
+  }
 </style>
 </head>
 <body>
@@ -129,6 +138,9 @@
   <div id="endpoints" style="flex:1; overflow-y:auto"></div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="topoLink" style="color:var(--accent); font-size:13px">⇄ Topology</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="reportLink" style="color:var(--accent); font-size:13px">📋 Compliance report</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="downloadLink" style="color:var(--accent); font-size:13px">⬇ Download agent</a>
@@ -215,6 +227,17 @@
         </table></div>
       </div>
     </div>
+  </div>
+
+  <div id="reportView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Compliance report</h2>
+      <a href="#" id="reportBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <button class="abtn" id="reportCsv" style="color:var(--accent)">⬇ CSV</button>
+      <button class="abtn" id="reportPrint" style="color:var(--accent)">🖨 Print / PDF</button>
+    </header>
+    <div id="reportBody"></div>
   </div>
 
   <div id="downloadView" style="display:none">
@@ -852,6 +875,7 @@ function setupAdmin(me) {
 
 function showAdmin(on) {
   adminMode = on;
+  if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -968,6 +992,7 @@ function showDownload(on) {
   dlMode = on;
   $("downloadView").style.display = on ? "block" : "none";
   $("detail").style.display = on ? "none" : "block";
+  if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -976,6 +1001,113 @@ function showDownload(on) {
     $("detail").style.display = "none";
     renderDownload();
   }
+}
+
+/* ---- compliance report view ---- */
+let reportMode = false, reportData = null;
+$("reportLink").onclick = e => { e.preventDefault(); closeSidebar(); showReport(true); };
+$("reportBack").onclick = e => { e.preventDefault(); showReport(false); };
+$("reportPrint").onclick = () => window.print();
+$("reportCsv").onclick = () => downloadReportCsv();
+
+function showReport(on) {
+  reportMode = on;
+  if (on) {
+    if (topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    reportMode = true;
+    $("reportView").style.display = "block";
+    $("detail").style.display = "none";
+    loadReport();
+  } else {
+    $("reportView").style.display = "none";
+    refreshEndpoints();
+  }
+}
+
+async function loadReport() {
+  $("reportBody").innerHTML = `<div style="color:var(--dim)">loading…</div>`;
+  try {
+    reportData = await getJSON(orgQ("/api/v1/report"));
+    renderReport(reportData);
+  } catch (e) {
+    $("reportBody").innerHTML = `<div style="color:var(--red)">${esc(e.message || "failed to load report")}</div>`;
+  }
+}
+
+function sevColor(s) {
+  return /crit|high/i.test(s) ? "var(--red)" : /med|mod/i.test(s) ? "var(--amber)" : "var(--dim)";
+}
+
+function renderReport(r) {
+  const score = r.posture_score || 0;
+  const grade = score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : score >= 60 ? "D" : "F";
+  const scoreColor = score >= 80 ? "var(--green)" : score >= 60 ? "var(--amber)" : "var(--red)";
+  const os = Object.entries(r.os_breakdown || {}).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ") || "—";
+  const sevOrder = ["critical", "high", "medium", "moderate", "low", "unknown"];
+  const vulns = Object.entries(r.vulns || {}).sort((a, b) => sevOrder.indexOf(a[0]) - sevOrder.indexOf(b[0]));
+  $("reportBody").innerHTML = `
+    <div style="color:var(--dim); font-size:12px; margin-bottom:14px">
+      generated ${new Date(r.generated_at).toLocaleString()} · ${r.endpoints} endpoint(s), ${r.online} online · ${esc(os)}</div>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px">
+      <div class="rcard">
+        <div class="rcard-h">Posture score (CIS-lite)</div>
+        <div style="font-size:42px; font-weight:700; color:${scoreColor}; line-height:1.1">${score}<span style="font-size:20px">%</span> <span style="font-size:24px">${grade}</span></div>
+        <div style="color:var(--dim); font-size:12px">${r.posture_pass} pass · ${r.posture_fail} fail</div>
+      </div>
+      <div class="rcard">
+        <div class="rcard-h">Vulnerabilities</div>
+        <div style="font-size:42px; font-weight:700; line-height:1.1">${r.vuln_total}</div>
+        <div style="font-size:12.5px">${vulns.map(([s, n]) => `<span style="color:${sevColor(s)}">${esc(s)}: ${n}</span>`).join(" · ") || "none"}</div>
+      </div>
+      <div class="rcard">
+        <div class="rcard-h">Patch &amp; service health</div>
+        <div style="font-size:12.5px; line-height:1.9">
+          pending updates: <b>${r.pending_updates}</b><br>
+          reboot required: <b style="color:${r.reboot_required ? "var(--amber)" : "var(--green)"}">${r.reboot_required}</b> endpoint(s)<br>
+          failed services: <b style="color:${r.failed_services ? "var(--red)" : "var(--green)"}">${r.failed_services}</b> endpoint(s)</div>
+      </div>
+    </div>
+    <h3 style="margin:18px 0 8px">Posture checks</h3>
+    <table style="width:100%; border-collapse:collapse">
+      <thead><tr style="text-align:left; color:var(--dim); font-size:12px; border-bottom:1px solid var(--border)">
+        <th style="padding:6px 8px">Check</th><th style="padding:6px 8px; text-align:right">Pass</th><th style="padding:6px 8px; text-align:right">Fail</th></tr></thead>
+      <tbody>${(r.posture_checks || []).map(c => `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 8px">${esc(c.desc || c.id)}</td>
+          <td style="padding:6px 8px; text-align:right; color:var(--green)">${c.pass}</td>
+          <td style="padding:6px 8px; text-align:right; color:${c.fail ? "var(--red)" : "var(--dim)"}">${c.fail}</td>
+        </tr>`).join("") || `<tr><td colspan="3" style="padding:6px 8px; color:var(--dim)">no posture data yet</td></tr>`}</tbody>
+    </table>`;
+}
+
+function downloadReportCsv() {
+  if (!reportData) return;
+  const r = reportData;
+  const rows = [["section", "key", "value"],
+    ["summary", "generated_at", r.generated_at],
+    ["summary", "endpoints", r.endpoints],
+    ["summary", "online", r.online],
+    ["summary", "posture_score", r.posture_score],
+    ["summary", "posture_pass", r.posture_pass],
+    ["summary", "posture_fail", r.posture_fail],
+    ["summary", "vuln_total", r.vuln_total],
+    ["summary", "pending_updates", r.pending_updates],
+    ["summary", "reboot_required", r.reboot_required],
+    ["summary", "failed_services", r.failed_services]];
+  for (const [s, n] of Object.entries(r.vulns || {})) rows.push(["vuln_severity", s, n]);
+  for (const [k, v] of Object.entries(r.os_breakdown || {})) rows.push(["os", k, v]);
+  for (const c of (r.posture_checks || [])) {
+    rows.push(["posture", (c.desc || c.id) + " / pass", c.pass]);
+    rows.push(["posture", (c.desc || c.id) + " / fail", c.fail]);
+  }
+  const csv = rows.map(row => row.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+  a.download = "varro-compliance-report.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function renderDownload() {
@@ -1088,6 +1220,7 @@ let topoSearch = "";
 
 function showTopo(on) {
   topoMode = on;
+  if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

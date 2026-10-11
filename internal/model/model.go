@@ -467,6 +467,32 @@ type OrgMember struct {
 	Role  string `json:"role"` // "member" or "admin" (org admin: manages this org)
 }
 
+// ComplianceReport is an org-wide rollup of posture, vulnerabilities, and
+// patch health for auditing/reporting.
+type ComplianceReport struct {
+	GeneratedAt    time.Time      `json:"generated_at"`
+	Endpoints      int            `json:"endpoints"`
+	Online         int            `json:"online"`
+	OSBreakdown    map[string]int `json:"os_breakdown"`
+	PostureScore   int            `json:"posture_score"` // % of pass over pass+fail
+	PosturePass    int            `json:"posture_pass"`
+	PostureFail    int            `json:"posture_fail"`
+	PostureChecks  []PostureStat  `json:"posture_checks"` // per-check aggregate across the fleet
+	Vulns          map[string]int `json:"vulns"`          // severity -> count
+	VulnTotal      int            `json:"vuln_total"`
+	PendingUpdates int            `json:"pending_updates"` // summed across endpoints
+	RebootRequired int            `json:"reboot_required"` // endpoints needing a reboot
+	FailedServices int            `json:"failed_services"` // endpoints with a failed service
+}
+
+// PostureStat aggregates one CIS-lite check across the fleet.
+type PostureStat struct {
+	ID   string `json:"id"`
+	Desc string `json:"desc"`
+	Pass int    `json:"pass"`
+	Fail int    `json:"fail"`
+}
+
 // OrgTokenInfo describes an enrollment token without revealing it.
 type OrgTokenInfo struct {
 	ID        string    `json:"id"`

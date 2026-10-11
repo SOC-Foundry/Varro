@@ -103,6 +103,33 @@ func (s *Store) VulnCount(ctx context.Context, endpointID string) (int, error) {
 	return n, err
 }
 
+// VulnSeverityCounts returns, for the given org scope (nil = all), the number of
+// vulnerability findings grouped by severity ("" normalized to "unknown").
+func (s *Store) VulnSeverityCounts(ctx context.Context, orgIDs []string) (map[string]int, error) {
+	filter, args := orgFilter("e.org_id", orgIDs)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT COALESCE(NULLIF(vd.severity, ''), 'unknown'), COUNT(*)
+FROM vulns v
+JOIN endpoints e ON e.id = v.endpoint_id
+LEFT JOIN vuln_details vd ON vd.id = v.vuln_id
+WHERE 1=1`+filter+`
+GROUP BY 1`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var sev string
+		var n int
+		if err := rows.Scan(&sev, &n); err != nil {
+			return nil, err
+		}
+		out[sev] = n
+	}
+	return out, rows.Err()
+}
+
 // UnknownVulnIDs returns referenced vuln IDs with no cached details yet.
 func (s *Store) UnknownVulnIDs(ctx context.Context, limit int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
