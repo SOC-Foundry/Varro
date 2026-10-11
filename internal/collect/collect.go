@@ -187,6 +187,11 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 		// Distinct (comm,dest,port) short-lived connects since last sample, capped.
 		seen := map[string]bool{}
 		for _, cn := range c.connTracer.DrainConns() {
+			// Loopback is a local connection, not interesting for topology or
+			// reverse-shell detection — drop it.
+			if ip := net.ParseIP(cn.Dest); ip == nil || ip.IsLoopback() {
+				continue
+			}
 			k := fmt.Sprintf("%s|%s|%d", cn.Comm, cn.Dest, cn.Port)
 			if seen[k] || len(snap.Conns) >= 100 {
 				continue

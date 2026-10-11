@@ -74,6 +74,8 @@ int trace_connect(struct inet_state_args *ctx) {
 		return 0;
 	if (ctx->oldstate != 7 || ctx->newstate != 2) // TCP_CLOSE -> TCP_SYN_SENT
 		return 0;
+	if (ctx->family == 2 && ctx->daddr[0] == 127) // skip IPv4 loopback (127.0.0.0/8)
+		return 0;
 	struct conn_event *e = bpf_ringbuf_reserve(&conns, sizeof(struct conn_event), 0);
 	if (!e)
 		return 0;

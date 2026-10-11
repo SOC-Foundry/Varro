@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +107,11 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 	//     sensor — a shell or network tool that connected out and may have
 	//     already exited before the periodic scan could see it.
 	for _, cn := range snap.Conns {
+		// Loopback (127.0.0.0/8, ::1) is a local connection, never a reverse
+		// shell — skip it.
+		if ip := net.ParseIP(cn.Dest); ip == nil || ip.IsLoopback() {
+			continue
+		}
 		comm := baseComm(cn.Comm)
 		dest := cn.Dest + ":" + itoa(int(cn.Port))
 		if shellTools[comm] {

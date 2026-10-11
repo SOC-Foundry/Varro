@@ -464,15 +464,21 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 	// *why* it's critical, not just that it is.
 	hotByEndpoint := map[string]map[string]bool{}
 	hotMsgByEndpoint := map[string][]string{}
+	hotMsgSeen := map[string]bool{} // endpoint|message, to dedupe repeats
 	if evs, err := s.store.Events(ctx, "", scope, 500); err == nil {
 		for _, ev := range evs {
+			if ev.Timestamp.Before(since) {
+				continue // "critical now" reflects the view window, not stale events
+			}
 			switch ev.Type {
 			case model.EventDetection, model.EventThreatMatch, model.EventMalwareMatch, model.EventDomainThreatMatch:
 				if hotByEndpoint[ev.EndpointID] == nil {
 					hotByEndpoint[ev.EndpointID] = map[string]bool{}
 				}
 				hotByEndpoint[ev.EndpointID][ev.Type] = true
-				if len(hotMsgByEndpoint[ev.EndpointID]) < 3 {
+				key := ev.EndpointID + "|" + ev.Message
+				if !hotMsgSeen[key] && len(hotMsgByEndpoint[ev.EndpointID]) < 3 {
+					hotMsgSeen[key] = true
 					hotMsgByEndpoint[ev.EndpointID] = append(hotMsgByEndpoint[ev.EndpointID], ev.Message)
 				}
 			}
