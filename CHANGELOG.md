@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.55.1] — 2026-10-11
+- Fix: flow byte volumes now populate on hosts without the nf_conntrack module (v0.55.0 returned early there, skipping the tcp_info overlay).
+
 ## [v0.55.0] — 2026-10-11
 - Flow byte volumes via tcp_info (sock_diag / `ss`), so the Flows map/table show real transfer sizes without conntrack or host config (the collector has no nf_conntrack module). Plus a flows-map label polish (labels try multiple sides so small destinations still get named).
 
