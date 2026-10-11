@@ -279,6 +279,7 @@
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fExposed"> internet-facing only</label>
       <label style="font-size:12px; color:var(--accent)"><input type="checkbox" id="fBlast"> blast radius (click a host)</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fCollapse"> collapse groups</label>
+      <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fHulls"> group boxes</label>
     </div>
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px">
       <span style="font-size:12px; color:var(--dim)">time&nbsp;travel</span>
@@ -1045,7 +1046,7 @@ $("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true
 $("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
 
 let topoWindow = 60; // minutes
-let topoAt = null, topoCollapse = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
+let topoAt = null, topoCollapse = false, topoHulls = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
 const TOPO_RANGES = [["15m",15],["1h",60],["6h",360],["24h",1440]];
 
 function setupTopoControls() {
@@ -1069,6 +1070,7 @@ function setupTopoControls() {
   $("topoSearch").oninput = () => { topoSearch = $("topoSearch").value.trim().toLowerCase(); };
   for (const id of ["fThreat","fNew","fExposed"]) $(id).onchange = () => {};
   $("fCollapse").onchange = () => { topoCollapse = $("fCollapse").checked; applyView(); };
+  $("fHulls").onchange = () => { topoHulls = $("fHulls").checked; };
   $("topoTime").oninput = () => {
     const i = +$("topoTime").value;
     if (i >= topoTimeline.length) {
@@ -1273,6 +1275,21 @@ function tickTopo() {
     a.vx += dx / d * f; a.vy += dy / d * f;
     b.vx -= dx / d * f; b.vy -= dy / d * f;
   }
+  // Group cohesion: nudge same-group nodes toward their group's centroid so
+  // clusters (same ASN / cloud region) form and separate — keeps the graph
+  // legible as external destinations multiply.
+  const gcen = {};
+  for (const n of topoNodes) {
+    if (n.group && !n.aggregated) {
+      const c = gcen[n.group] || (gcen[n.group] = { x: 0, y: 0, n: 0 });
+      c.x += n.x; c.y += n.y; c.n++;
+    }
+  }
+  for (const g in gcen) { gcen[g].x /= gcen[g].n; gcen[g].y /= gcen[g].n; }
+  for (const n of topoNodes) {
+    const c = n.group && gcen[n.group];
+    if (c && c.n > 1) { n.vx += (c.x - n.x) * 0.02; n.vy += (c.y - n.y) * 0.02; }
+  }
   for (const n of topoNodes) {
     if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
     n.vx *= 0.82; n.vy *= 0.82;
@@ -1354,9 +1371,10 @@ function tickTopo() {
   }
 
   // Group hulls: translucent cluster backgrounds behind nodes sharing a group
-  // (cloud acct/region for hosts, ASN for external destinations).
+  // (cloud acct/region for hosts, ASN for external destinations). Off by default
+  // (toggle) — with many same-ASN nodes the boxes overlap and clutter the view.
   const groups = {};
-  for (const n of topoNodes) {
+  if (topoHulls) for (const n of topoNodes) {
     if (n.group && !n.aggregated && !(blastSet && !blastSet.has(n.id))) (groups[n.group] ||= []).push(n);
   }
   for (const g in groups) {
