@@ -44,6 +44,13 @@ func set(items ...string) map[string]bool {
 	return m
 }
 
+// isLoopback reports whether an IP is loopback (or unparseable) — such a
+// destination is a local connection, never remote-attacker activity.
+func isLoopback(ip string) bool {
+	p := net.ParseIP(ip)
+	return p == nil || p.IsLoopback()
+}
+
 // base name without path/args, lowercased.
 func baseComm(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -94,8 +101,12 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 	}
 
 	// 1. Reverse shell / C2: a shell or raw network tool with a live outbound
-	//    connection.
+	//    connection. Loopback (127.0.0.0/8, ::1) is a local connection, not a
+	//    reverse shell — skip it.
 	for _, c := range snap.Security.Connections {
+		if ip, _ := splitRemote(c.Remote); isLoopback(ip) {
+			continue
+		}
 		if shellTools[baseComm(c.Process)] {
 			fire("reverse_shell", "HIGH", c.Process+c.Remote,
 				snap.Hostname+": "+c.Process+" has an active connection to "+c.Remote+
@@ -107,9 +118,7 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 	//     sensor — a shell or network tool that connected out and may have
 	//     already exited before the periodic scan could see it.
 	for _, cn := range snap.Conns {
-		// Loopback (127.0.0.0/8, ::1) is a local connection, never a reverse
-		// shell — skip it.
-		if ip := net.ParseIP(cn.Dest); ip == nil || ip.IsLoopback() {
+		if isLoopback(cn.Dest) {
 			continue
 		}
 		comm := baseComm(cn.Comm)
@@ -148,7 +157,10 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 	}
 	if snap.CPU.TotalPercent > 90 {
 		for _, c := range snap.Security.Connections {
-			_, port := splitRemote(c.Remote)
+			ip, port := splitRemote(c.Remote)
+			if isLoopback(ip) {
+				continue
+			}
 			if miningPorts[itoa(port)] {
 				fire("crypto_miner", "MEDIUM", c.Remote,
 					fmt.Sprintf("%s: sustained %.0f%% CPU with a connection to mining-pool port %s",
