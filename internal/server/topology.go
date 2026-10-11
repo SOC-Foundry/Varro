@@ -459,8 +459,11 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 			remoteOf(a, ip).count++
 		}
 	}
-	// Recent high-signal events per endpoint → "critical" node risk.
+	// Recent high-signal events per endpoint → "critical" node risk. Keep the
+	// actual messages (newest first, capped) so a critical node can explain
+	// *why* it's critical, not just that it is.
 	hotByEndpoint := map[string]map[string]bool{}
+	hotMsgByEndpoint := map[string][]string{}
 	if evs, err := s.store.Events(ctx, "", scope, 500); err == nil {
 		for _, ev := range evs {
 			switch ev.Type {
@@ -469,6 +472,9 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 					hotByEndpoint[ev.EndpointID] = map[string]bool{}
 				}
 				hotByEndpoint[ev.EndpointID][ev.Type] = true
+				if len(hotMsgByEndpoint[ev.EndpointID]) < 3 {
+					hotMsgByEndpoint[ev.EndpointID] = append(hotMsgByEndpoint[ev.EndpointID], ev.Message)
+				}
 			}
 		}
 	}
@@ -488,6 +494,11 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 			}
 		}
 		n.Risk, n.RiskReasons = s.nodeRisk(ctx, ep, snap, hotByEndpoint[ep.ID])
+		// For a critical node, surface the actual triggering events as the
+		// reason so the inspect panel explains the "why".
+		if n.Risk == "critical" && len(hotMsgByEndpoint[ep.ID]) > 0 {
+			n.RiskReasons = hotMsgByEndpoint[ep.ID]
+		}
 		nodes = append(nodes, n)
 	}
 

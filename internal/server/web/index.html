@@ -1499,7 +1499,8 @@ function renderTopoInfo() {
     const meta = [n.group, n.containers ? `▣ ${n.containers} containers` : ""].filter(Boolean).map(esc).join(" · ");
     box.innerHTML = `<h3>${esc(n.hostname)} <span class="now" style="color:${n.online ? "var(--green)" : "var(--red)"}">${n.online ? "online" : "offline"}</span>${riskBadge}</h3>` +
       (meta ? `<div style="color:var(--dim); font-size:12px; margin-bottom:4px">${meta}</div>` : "") +
-      ((n.risk_reasons ?? []).length ? `<div style="color:var(--amber); font-size:12.5px; margin-bottom:6px">⚠ ${(n.risk_reasons).map(esc).join("; ")}</div>` : "") +
+      ((n.risk_reasons ?? []).length ? `<div style="margin-bottom:6px">` + (n.risk_reasons).map(rr =>
+        `<div style="color:${n.risk === "critical" ? "var(--red)" : "var(--amber)"}; font-size:12px; padding:1px 0">⚠ ${esc(rr)}</div>`).join("") + `</div>` : "") +
       related.map(e => {
         const other = id => id === "internet" ? "internet" : esc(topoNodes.find(x => x.id === id)?.hostname ?? id);
         const dir = e.src === n.id ? `→ ${other(e.dst)}` : `← ${other(e.src)}`;
