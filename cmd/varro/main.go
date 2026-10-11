@@ -174,6 +174,8 @@ func runAgent(ctx context.Context, args []string) error {
 	stateDir := fs.String("state-dir", defaultStateDir(), "directory for agent token and offline spool")
 	captureDNS := fs.Bool("capture-dns", true,
 		"passively observe DNS responses to label topology with real domains (Linux, local-only, needs root)")
+	captureLogs := fs.Bool("capture-logs", true,
+		"ship journald logs to the collector (Linux)")
 	fs.Parse(args)
 	if *serverURL == "" {
 		return fmt.Errorf("agent requires --server (or VARRO_SERVER)")
@@ -186,6 +188,7 @@ func runAgent(ctx context.Context, args []string) error {
 		Interval:    *interval,
 		StateDir:    *stateDir,
 		CaptureDNS:  *captureDNS,
+		CaptureLogs: *captureLogs,
 	}, log)
 	if err != nil {
 		return err

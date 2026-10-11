@@ -42,6 +42,7 @@ type Config struct {
 	Interval    time.Duration // initial sampling interval; the server may override it
 	StateDir    string        // where the per-agent token and spool live
 	CaptureDNS  bool          // passively observe DNS to label topology with real domains (Linux)
+	CaptureLogs bool          // ship journald logs to the collector (Linux)
 }
 
 type Agent struct {
@@ -52,6 +53,10 @@ type Agent struct {
 	agentToken string
 	interval   time.Duration
 	log        *slog.Logger
+
+	logCursor   string // journald resume position
+	logsOff     bool   // disabled after an unsupported-platform error
+	logCursorLd bool   // cursor loaded from disk
 }
 
 // Version is the agent build version, injected by the main package.
@@ -186,6 +191,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		// prompt, not gated on the 5-minute config cadence.
 		if actions := a.fetchActions(ctx); len(actions) > 0 {
 			a.runActions(ctx, actions)
+		}
+
+		if a.cfg.CaptureLogs {
+			a.shipLogs(ctx)
 		}
 
 		if time.Since(lastConfigFetch) >= configFetchEvery {
@@ -324,6 +333,58 @@ func (a *Agent) ship(ctx context.Context) error {
 	os.Remove(a.spoolPath())
 	a.collector.InventoryDelivered()
 	return nil
+}
+
+const (
+	logCursorFile = "logcursor"
+	maxLogBatch   = 300
+)
+
+func (a *Agent) logCursorPath() string { return filepath.Join(a.cfg.StateDir, logCursorFile) }
+
+// shipLogs collects journald entries since the saved cursor and POSTs them,
+// advancing the cursor only on success so a failed ship is retried. Best-effort:
+// log shipping never blocks or fails the main sample loop.
+func (a *Agent) shipLogs(ctx context.Context) {
+	if a.logsOff {
+		return
+	}
+	if !a.logCursorLd {
+		if b, err := os.ReadFile(a.logCursorPath()); err == nil {
+			a.logCursor = strings.TrimSpace(string(b))
+		}
+		a.logCursorLd = true
+	}
+	entries, cursor, err := collect.CollectLogs(ctx, a.logCursor, maxLogBatch)
+	if err != nil {
+		a.logsOff = true
+		a.log.Info("log capture disabled", "reason", err)
+		return
+	}
+	if len(entries) == 0 {
+		return
+	}
+	body, err := json.Marshal(entries)
+	if err != nil {
+		return
+	}
+	req, err := a.authedRequest(ctx, http.MethodPost, "/api/v1/logs", body)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		a.log.Warn("log ship failed", "error", err) // keep cursor; retry next tick
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		a.log.Warn("log ship rejected", "status", resp.Status)
+		return
+	}
+	a.logCursor = cursor
+	os.WriteFile(a.logCursorPath(), []byte(cursor), 0o600)
 }
 
 // writeSpool persists the current buffer as JSON lines, replacing any

@@ -489,6 +489,26 @@ type ComplianceReport struct {
 	FailedServices int            `json:"failed_services"` // endpoints with a failed service
 }
 
+// LogEntry is a single collected log line shipped from an endpoint (e.g. a
+// journald record). Severity follows syslog names (emergency..debug) or "".
+type LogEntry struct {
+	TS       int64  `json:"ts"`                 // unix seconds
+	Severity string `json:"severity,omitempty"` // emergency|alert|critical|error|warning|notice|info|debug
+	Source   string `json:"source,omitempty"`   // systemd unit or syslog identifier
+	Message  string `json:"message"`
+}
+
+// StoredLog is a log line as returned by the query API, with provenance.
+type StoredLog struct {
+	OrgID      string `json:"org_id"`
+	EndpointID string `json:"endpoint_id"`
+	Hostname   string `json:"hostname"`
+	TS         int64  `json:"ts"`
+	Severity   string `json:"severity,omitempty"`
+	Source     string `json:"source,omitempty"`
+	Message    string `json:"message"`
+}
+
 // FlowTalker is one external destination in the fleet's top-talkers rollup:
 // total bytes, connection count, and how many fleet hosts reached it.
 type FlowTalker struct {

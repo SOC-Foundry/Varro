@@ -143,6 +143,9 @@
     <a href="#" id="flowsLink" style="color:var(--accent); font-size:13px">🌍 Flows &amp; talkers</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="logsLink" style="color:var(--accent); font-size:13px">📜 Logs</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="reportLink" style="color:var(--accent); font-size:13px">📋 Compliance report</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
@@ -339,6 +342,40 @@
           <th class="num">Bytes</th><th class="num">Conns</th><th class="num">Hosts</th>
         </tr></thead>
         <tbody id="flowsRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="logsView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Logs</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">journald across the fleet · newest first</span>
+      <a href="#" id="logsBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+    </header>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px">
+      <input id="logsSearch" placeholder="search message…" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12.5px; min-width:200px">
+      <select id="logsEndpoint" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"></select>
+      <select id="logsSeverity" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px">
+        <option value="">all severities</option>
+        <option value="critical">critical</option>
+        <option value="error">error</option>
+        <option value="warning">warning</option>
+        <option value="notice">notice</option>
+        <option value="info">info</option>
+        <option value="debug">debug</option>
+      </select>
+      <span id="logsRanges" style="display:flex; gap:4px"></span>
+      <label style="font-size:12px; color:var(--accent)"><input type="checkbox" id="logsTail"> live tail</label>
+      <button class="abtn" id="logsCsv" style="color:var(--accent)">⬇ CSV</button>
+    </div>
+    <div id="logsLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <div class="card" style="overflow-x:auto; max-height:66vh; overflow-y:auto">
+      <table style="width:100%; min-width:720px">
+        <thead><tr>
+          <th style="width:150px">Time</th><th style="width:120px">Host</th>
+          <th style="width:80px">Severity</th><th style="width:150px">Source</th><th>Message</th>
+        </tr></thead>
+        <tbody id="logsRows"></tbody>
       </table>
     </div>
   </div>
@@ -579,7 +616,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -904,6 +941,7 @@ function showAdmin(on) {
   adminMode = on;
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+  if (on && logsMode) { hideLogs(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1022,6 +1060,7 @@ function showDownload(on) {
   $("detail").style.display = on ? "none" : "block";
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+  if (on && logsMode) { hideLogs(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1046,6 +1085,7 @@ function showReport(on) {
     showAdmin(false);
     if (dlMode) showDownload(false);
     if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1227,6 +1267,7 @@ function showFlows(on) {
     showAdmin(false);
     if (dlMode) showDownload(false);
     if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (logsMode) hideLogs();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1364,6 +1405,113 @@ function tickFlowMap() {
   }
 }
 
+/* ---- logs view ---- */
+let logsMode = false, logsData = [], logsWindow = 60, logsTimer = null, logsSearchT = null;
+const SEV_COLOR = { emergency: "var(--red)", alert: "var(--red)", critical: "var(--red)", error: "var(--red)", warning: "var(--amber)", notice: "var(--accent)", info: "var(--dim)", debug: "var(--dim)" };
+
+$("logsLink").onclick = e => { e.preventDefault(); closeSidebar(); showLogs(true); };
+$("logsBack").onclick = e => { e.preventDefault(); showLogs(false); };
+$("logsCsv").onclick = () => downloadLogsCsv();
+$("logsSeverity").onchange = () => loadLogs();
+$("logsEndpoint").onchange = () => loadLogs();
+$("logsSearch").oninput = () => { clearTimeout(logsSearchT); logsSearchT = setTimeout(loadLogs, 350); };
+$("logsTail").onchange = () => { if ($("logsTail").checked) startLogTail(); else stopLogTail(); };
+
+function hideLogs() {
+  logsMode = false; $("logsView").style.display = "none"; stopLogTail();
+}
+function startLogTail() { stopLogTail(); logsTimer = setInterval(() => { if (!document.hidden && logsMode) loadLogs(); }, 5000); }
+function stopLogTail() { clearInterval(logsTimer); logsTimer = null; }
+
+function showLogs(on) {
+  logsMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    logsMode = true;
+    $("logsView").style.display = "block";
+    $("detail").style.display = "none";
+    setupLogRanges();
+    populateLogEndpoints();
+    loadLogs();
+    if ($("logsTail").checked) startLogTail();
+  } else {
+    hideLogs();
+    refreshEndpoints();
+  }
+}
+
+function setupLogRanges() {
+  if (setupLogRanges.done) return;
+  const box = $("logsRanges");
+  box.innerHTML = "";
+  for (const [label, m] of [["1h", 60], ["24h", 1440], ["7d", 10080]]) {
+    const b = document.createElement("button");
+    b.className = "abtn"; b.textContent = label;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (m === logsWindow ? ";color:var(--accent);border-color:var(--accent)" : "");
+    b.onclick = () => { logsWindow = m; setupLogRanges.done = false; setupLogRanges(); loadLogs(); };
+    box.appendChild(b);
+  }
+  setupLogRanges.done = true;
+}
+
+async function populateLogEndpoints() {
+  try {
+    const eps = await getJSON(orgQ("/api/v1/endpoints"));
+    const sel = $("logsEndpoint");
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">all hosts</option>` +
+      eps.map(ep => `<option value="${esc(ep.id)}">${esc(ep.hostname)}</option>`).join("");
+    sel.value = cur;
+  } catch (e) { /* keep existing options */ }
+}
+
+async function loadLogs() {
+  const p = new URLSearchParams();
+  p.set("minutes", logsWindow);
+  p.set("limit", "500");
+  if ($("logsSearch").value.trim()) p.set("q", $("logsSearch").value.trim());
+  if ($("logsEndpoint").value) p.set("endpoint", $("logsEndpoint").value);
+  if ($("logsSeverity").value) p.set("severity", $("logsSeverity").value);
+  try {
+    const r = await getJSON(orgQ("/api/v1/logs?" + p.toString()));
+    logsData = r.logs || [];
+    renderLogs();
+  } catch (e) { $("logsRows").innerHTML = `<tr><td colspan="5" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderLogs() {
+  const rows = $("logsRows");
+  if (!logsData.length) { rows.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no matching log lines in this window</td></tr>`; }
+  else rows.innerHTML = logsData.map(l => {
+    const t = new Date(l.ts * 1000).toLocaleString();
+    const col = SEV_COLOR[l.severity] || "var(--dim)";
+    return `<tr>
+      <td style="font-family:var(--mono); color:var(--dim); white-space:nowrap">${esc(t)}</td>
+      <td style="font-family:var(--mono)">${esc(l.hostname || l.endpoint_id)}</td>
+      <td style="color:${col}">${esc(l.severity || "—")}</td>
+      <td style="font-family:var(--mono); color:var(--dim)">${esc(l.source || "")}</td>
+      <td style="font-family:var(--mono); white-space:pre-wrap; word-break:break-word">${esc(l.message)}</td>
+    </tr>`;
+  }).join("");
+  const warns = logsData.filter(l => SEV_COLOR[l.severity] === "var(--red)").length;
+  $("logsLegend").innerHTML = `${logsData.length} line${logsData.length === 1 ? "" : "s"}` +
+    (warns ? ` · <span style="color:var(--red)">${warns} error-level</span>` : "") +
+    ($("logsTail").checked ? ` · <span style="color:var(--accent)">live</span>` : "");
+}
+
+function downloadLogsCsv() {
+  const rows = [["time", "host", "severity", "source", "message"]];
+  for (const l of logsData) rows.push([new Date(l.ts * 1000).toISOString(), l.hostname || l.endpoint_id, l.severity || "", l.source || "", l.message]);
+  const csv = rows.map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "varro-logs.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
 /* ---- topology view ---- */
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
@@ -1417,6 +1565,7 @@ function showTopo(on) {
   topoMode = on;
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+  if (on && logsMode) { hideLogs(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

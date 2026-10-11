@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_endpoint_ts ON events(endpoint_id, ts);
+CREATE TABLE IF NOT EXISTS logs (
+	id          INTEGER PRIMARY KEY,
+	org_id      TEXT NOT NULL,
+	endpoint_id TEXT NOT NULL,
+	ts          INTEGER NOT NULL,
+	severity    TEXT NOT NULL DEFAULT '',
+	source      TEXT NOT NULL DEFAULT '',
+	message     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_logs_org_ts ON logs(org_id, ts);
+CREATE INDEX IF NOT EXISTS idx_logs_endpoint_ts ON logs(endpoint_id, ts);
 CREATE TABLE IF NOT EXISTS alerts (
 	id          INTEGER PRIMARY KEY,
 	rule        TEXT NOT NULL,
@@ -631,6 +642,10 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 		return 0, err
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	// Logs are high-volume; keep them on the short (sample) retention.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM logs WHERE ts < ?`, sampleCut); err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)
