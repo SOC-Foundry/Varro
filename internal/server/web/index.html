@@ -1500,7 +1500,7 @@ function renderTopoInfo() {
     box.innerHTML = `<h3>${esc(n.hostname)} <span class="now" style="color:${n.online ? "var(--green)" : "var(--red)"}">${n.online ? "online" : "offline"}</span>${riskBadge}</h3>` +
       (meta ? `<div style="color:var(--dim); font-size:12px; margin-bottom:4px">${meta}</div>` : "") +
       ((n.risk_reasons ?? []).length ? `<div style="margin-bottom:6px">` + (n.risk_reasons).map(rr =>
-        `<div style="color:${n.risk === "critical" ? "var(--red)" : "var(--amber)"}; font-size:12px; padding:1px 0">⚠ ${esc(rr)}</div>`).join("") + `</div>` : "") +
+        `<div data-act="openEndpoint" data-id="${esc(n.id)}" title="open this host — full events & response actions" style="color:${n.risk === "critical" ? "var(--red)" : "var(--amber)"}; font-size:12px; padding:2px 4px; margin:1px 0; cursor:pointer; border-radius:4px; border:1px solid transparent" onmouseover="this.style.background='#1c232c';this.style.borderColor='var(--border)'" onmouseout="this.style.background='';this.style.borderColor='transparent'">⚠ ${esc(rr)} <span style="color:var(--dim)">→</span></div>`).join("") + `</div>` : "") +
       related.map(e => {
         const other = id => id === "internet" ? "internet" : esc(topoNodes.find(x => x.id === id)?.hostname ?? id);
         const dir = e.src === n.id ? `→ ${other(e.dst)}` : `← ${other(e.src)}`;
