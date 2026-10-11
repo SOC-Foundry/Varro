@@ -29,15 +29,18 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// External destinations carry their geo label on the node's Group field
+	// ("US · AS15169 Google"), set by buildTopology when GeoIP is enabled.
 	name := make(map[string]string, len(nodes))
+	geoByNode := make(map[string]string, len(nodes))
 	for _, n := range nodes {
 		name[n.ID] = n.Hostname
+		geoByNode[n.ID] = n.Group
 	}
 
 	type agg struct {
 		bytes uint64
 		count int
-		geo   string
 		mal   bool
 		srcs  map[string]bool
 	}
@@ -55,14 +58,6 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		a.count += e.Count
 		a.srcs[e.Src] = true
 		a.mal = a.mal || e.Malicious
-		if a.geo == "" {
-			for _, g := range e.RemoteGeo {
-				if g != "" {
-					a.geo = g
-					break
-				}
-			}
-		}
 	}
 
 	out := make([]model.FlowTalker, 0, len(byDest))
@@ -71,13 +66,14 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		if dn == "" {
 			dn = dst
 		}
+		geo := geoByNode[dst]
 		out = append(out, model.FlowTalker{
 			Dest:      dn,
 			Bytes:     a.bytes,
 			Count:     a.count,
 			Sources:   len(a.srcs),
-			Geo:       a.geo,
-			Country:   countryOf(a.geo),
+			Geo:       geo,
+			Country:   countryOf(geo),
 			Malicious: a.mal,
 		})
 	}

@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.53.1] — 2026-10-11
+- Fix Flows map/table geo always empty: read the destination geo from the topology node (where buildTopology stores it) instead of the edge, which never carried it.
+
 ## [v0.53.0] — 2026-10-11
 - Logs pillar: agents ship journald logs (cursor-based, `--capture-logs`); a new Logs view searches, filters (host/severity/text/time), and live-tails them over `GET /api/v1/logs`. Adds the third telemetry pillar alongside metrics and events.
 
