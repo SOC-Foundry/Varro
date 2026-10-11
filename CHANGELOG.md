@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.52.0] — 2026-10-11
+- Flows & talkers view: top external talkers (bytes, connections, source hosts, geo) over `GET /api/v1/flows`, plus an animated world map plotting destinations by country, sized by conntrack byte volume. Surfaces flow data already collected but previously hidden.
+
 ## [v0.51.0] — 2026-10-11
 - No code change from v0.50.0; cut from the same commit to validate the pinned, flap-free deploy flow end to end.
 
