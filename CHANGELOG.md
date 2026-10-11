@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.54.0] — 2026-10-11
+- Runtime-reachability vulnerability prioritization: a "Priority fixes" view (and `GET /api/v1/vuln-priority`) ranks vulnerable hosts by exposure (internet-facing, talks-to-malicious, online) × severity, not raw CVSS — "what to patch first." Plus a Flows-map fix: same-country destinations fan out on a ring instead of stacking into unreadable labels.
+
 ## [v0.53.1] — 2026-10-11
 - Fix Flows map/table geo always empty: read the destination geo from the topology node (where buildTopology stores it) instead of the edge, which never carried it.
 
