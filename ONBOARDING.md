@@ -3,6 +3,8 @@
 Orientation for working on the **running** Varro system (not the product pitch —
 see [README.md](README.md) for what Varro does and how to run it from source).
 
+**Current release:** [v0.51.0](https://github.com/SOC-Foundry/Varro/releases/tag/v0.51.0) — both collectors run this; agents are pinned to it via `VARRO_AGENT_DESIRED_VERSION` so rolling deploys don't flap.
+
 ## What it is, in one line
 
 A single Go binary (`varro`) that is both the endpoint **agent** and the central
