@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.56.0] — 2026-10-11
+- Metric explorer: compare any metric (CPU, memory, disk, network, I/O, temp) across multiple hosts over a time range (`GET /api/v1/metrics/series`), plus named saved views (per user).
+
 ## [v0.55.1] — 2026-10-11
 - Fix: flow byte volumes now populate on hosts without the nf_conntrack module (v0.55.0 returned early there, skipping the tcp_info overlay).
 
