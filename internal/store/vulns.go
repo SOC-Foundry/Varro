@@ -130,6 +130,37 @@ GROUP BY 1`, args...)
 	return out, rows.Err()
 }
 
+// VulnSeverityByEndpoint returns, per endpoint in scope, its finding counts
+// grouped by raw severity (caller normalizes). Powers reachability-weighted
+// prioritization without an N+1 query.
+func (s *Store) VulnSeverityByEndpoint(ctx context.Context, orgIDs []string) (map[string]map[string]int, error) {
+	filter, args := orgFilter("e.org_id", orgIDs)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT v.endpoint_id, COALESCE(NULLIF(vd.severity, ''), 'unknown'), COUNT(*)
+FROM vulns v
+JOIN endpoints e ON e.id = v.endpoint_id
+LEFT JOIN vuln_details vd ON vd.id = v.vuln_id
+WHERE 1=1`+filter+`
+GROUP BY v.endpoint_id, 2`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string]int{}
+	for rows.Next() {
+		var ep, sev string
+		var n int
+		if err := rows.Scan(&ep, &sev, &n); err != nil {
+			return nil, err
+		}
+		if out[ep] == nil {
+			out[ep] = map[string]int{}
+		}
+		out[ep][sev] = n
+	}
+	return out, rows.Err()
+}
+
 // UnknownVulnIDs returns referenced vuln IDs with no cached details yet.
 func (s *Store) UnknownVulnIDs(ctx context.Context, limit int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `

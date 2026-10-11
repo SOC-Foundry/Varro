@@ -489,6 +489,24 @@ type ComplianceReport struct {
 	FailedServices int            `json:"failed_services"` // endpoints with a failed service
 }
 
+// VulnPriority ranks one endpoint's vulnerability exposure by runtime
+// reachability — the "what to patch first" signal: raw CVSS weight scaled by
+// how reachable/active the host actually is.
+type VulnPriority struct {
+	EndpointID     string   `json:"endpoint_id"`
+	Hostname       string   `json:"hostname"`
+	Score          int      `json:"score"`
+	Critical       int      `json:"critical"`
+	High           int      `json:"high"`
+	Medium         int      `json:"medium"`
+	Low            int      `json:"low"`
+	Total          int      `json:"total"`
+	InternetFacing bool     `json:"internet_facing,omitempty"`
+	Malicious      bool     `json:"malicious,omitempty"` // talks to a known-malicious destination
+	Online         bool     `json:"online"`
+	Reasons        []string `json:"reasons,omitempty"` // human-readable ranking drivers
+}
+
 // LogEntry is a single collected log line shipped from an endpoint (e.g. a
 // journald record). Severity follows syslog names (emergency..debug) or "".
 type LogEntry struct {

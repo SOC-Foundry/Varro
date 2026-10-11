@@ -149,6 +149,9 @@
     <a href="#" id="reportLink" style="color:var(--accent); font-size:13px">📋 Compliance report</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="priorityLink" style="color:var(--accent); font-size:13px">🎯 Priority fixes</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="downloadLink" style="color:var(--accent); font-size:13px">⬇ Download agent</a>
   </div>
   <div id="adminbar" style="display:none; padding:8px 16px; border-top:1px solid var(--border)">
@@ -376,6 +379,27 @@
           <th style="width:80px">Severity</th><th style="width:150px">Source</th><th>Message</th>
         </tr></thead>
         <tbody id="logsRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="priorityView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Priority fixes</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">vulnerabilities ranked by runtime reachability, not raw CVSS</span>
+      <a href="#" id="priorityBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <button class="abtn" id="priorityCsv" style="color:var(--accent)">⬇ CSV</button>
+    </header>
+    <div id="priorityLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <div class="card" style="overflow-x:auto">
+      <table style="width:100%; min-width:720px">
+        <thead><tr>
+          <th style="width:60px" class="num">Score</th><th>Host</th>
+          <th class="num">Crit</th><th class="num">High</th><th class="num">Med</th>
+          <th>Exposure</th><th>Why</th>
+        </tr></thead>
+        <tbody id="priorityRows"></tbody>
       </table>
     </div>
   </div>
@@ -616,7 +640,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -942,6 +966,7 @@ function showAdmin(on) {
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on && logsMode) { hideLogs(); }
+  if (on && priorityMode) { hidePriority(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1061,6 +1086,7 @@ function showDownload(on) {
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on && logsMode) { hideLogs(); }
+  if (on && priorityMode) { hidePriority(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1086,6 +1112,7 @@ function showReport(on) {
     if (dlMode) showDownload(false);
     if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
     if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1268,6 +1295,7 @@ function showFlows(on) {
     if (dlMode) showDownload(false);
     if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
     if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1361,22 +1389,37 @@ function tickFlowMap() {
   // fleet origin (abstract anchor, bottom-centre)
   const home = { x: w * 0.5, y: h * 0.9 };
 
-  // destinations with a known country centroid
+  // Destinations with a known country centroid, fanned out on a per-country
+  // ring so same-country points don't stack into an unreadable smear. Size and
+  // flow volume use bytes, falling back to connection count when conntrack byte
+  // accounting isn't available (so dots aren't all minimum-size).
   const plotted = flowsData.filter(t => t.country && COUNTRY_LL[t.country]);
-  const maxB = Math.max(1, ...plotted.map(t => t.bytes));
-  const dots = plotted.map(t => {
-    const [lat, lon] = COUNTRY_LL[t.country];
-    return { t, x: projX(lon, w), y: projY(lat, h), r: 3 + 9 * Math.sqrt(t.bytes / maxB) };
-  });
+  const metric = t => (t.bytes > 0 ? t.bytes : t.count) || 1;
+  const maxM = Math.max(1, ...plotted.map(metric));
+  const byCountry = {};
+  for (const t of plotted) (byCountry[t.country] = byCountry[t.country] || []).push(t);
+  const dots = [];
+  for (const cc of Object.keys(byCountry)) {
+    const members = byCountry[cc].sort((a, b) => metric(b) - metric(a));
+    const [lat, lon] = COUNTRY_LL[cc];
+    const bx = projX(lon, w), by = projY(lat, h);
+    const k = members.length;
+    const ring = k > 1 ? Math.min(14 + k * 2.5, 48) : 0;
+    members.forEach((t, i) => {
+      const ang = (i / k) * Math.PI * 2 - Math.PI / 2;
+      dots.push({ t, x: bx + Math.cos(ang) * ring, y: by + Math.sin(ang) * ring,
+        r: 3 + 9 * Math.sqrt(metric(t) / maxM), m: metric(t) });
+    });
+  }
 
-  // arcs + animated particles (speed/density scale with byte share)
+  // arcs + animated particles (density scales with volume share)
   const now = performance.now() / 1000;
   for (const d of dots) {
     const cx = (home.x + d.x) / 2, cy = Math.min(home.y, d.y) - 60;
-    ctx.strokeStyle = d.t.malicious ? "rgba(248,81,73,.35)" : "rgba(88,166,255,.22)";
+    ctx.strokeStyle = d.t.malicious ? "rgba(248,81,73,.3)" : "rgba(88,166,255,.16)";
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(home.x, home.y); ctx.quadraticCurveTo(cx, cy, d.x, d.y); ctx.stroke();
-    const share = d.t.bytes / maxB;
+    const share = d.m / maxM;
     const n = 1 + Math.round(share * 4);
     for (let i = 0; i < n; i++) {
       const tt = ((now * (0.25 + share * 0.5) + i / n) % 1);
@@ -1387,12 +1430,23 @@ function tickFlowMap() {
       ctx.beginPath(); ctx.arc(px, py, 1.6, 0, 7); ctx.fill();
     }
   }
-  // destination dots
+  // dots
   for (const d of dots) {
     ctx.fillStyle = d.t.malicious ? "rgba(248,81,73,.9)" : "rgba(63,185,80,.85)";
     ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill();
-    ctx.fillStyle = "#8b949e"; ctx.font = "10px ui-monospace,monospace";
-    ctx.fillText(d.t.dest.length > 22 ? d.t.dest.slice(0, 21) + "…" : d.t.dest, d.x + d.r + 3, d.y + 3);
+  }
+  // labels: biggest volume first, skip any that would overlap one already drawn
+  ctx.font = "10px ui-monospace,monospace";
+  const placed = [];
+  const fits = (x, y, wd) => !placed.some(b => Math.abs(b.y - y) < 11 && x < b.x + b.w && b.x < x + wd);
+  for (const d of [...dots].sort((a, b) => b.m - a.m)) {
+    if (placed.length >= 18) break;
+    const txt = d.t.dest.length > 24 ? d.t.dest.slice(0, 23) + "…" : d.t.dest;
+    const lx = d.x + d.r + 3, ly = d.y + 3, wd = txt.length * 5.6;
+    if (!fits(lx, ly, wd)) continue;
+    placed.push({ x: lx, y: ly, w: wd });
+    ctx.fillStyle = d.t.malicious ? "#f85149" : "#8b949e";
+    ctx.fillText(txt, lx, ly);
   }
   // home marker
   ctx.fillStyle = "#e6edf3"; ctx.beginPath(); ctx.arc(home.x, home.y, 5, 0, 7); ctx.fill();
@@ -1431,6 +1485,7 @@ function showLogs(on) {
     if (dlMode) showDownload(false);
     if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
     if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (priorityMode) hidePriority();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1512,6 +1567,77 @@ function downloadLogsCsv() {
   a.download = "varro-logs.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
+/* ---- priority fixes view ---- */
+let priorityMode = false, priorityData = [];
+$("priorityLink").onclick = e => { e.preventDefault(); closeSidebar(); showPriority(true); };
+$("priorityBack").onclick = e => { e.preventDefault(); showPriority(false); };
+$("priorityCsv").onclick = () => downloadPriorityCsv();
+
+function hidePriority() { priorityMode = false; $("priorityView").style.display = "none"; }
+
+function showPriority(on) {
+  priorityMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    priorityMode = true;
+    $("priorityView").style.display = "block";
+    $("detail").style.display = "none";
+    loadPriority();
+  } else {
+    hidePriority();
+    refreshEndpoints();
+  }
+}
+
+async function loadPriority() {
+  $("priorityRows").innerHTML = `<tr><td colspan="7" style="color:var(--dim)">loading…</td></tr>`;
+  try {
+    const r = await getJSON(orgQ("/api/v1/vuln-priority"));
+    priorityData = r.endpoints || [];
+    renderPriority();
+  } catch (e) { $("priorityRows").innerHTML = `<tr><td colspan="7" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderPriority() {
+  const rows = $("priorityRows");
+  if (!priorityData.length) { rows.innerHTML = `<tr><td colspan="7" style="color:var(--dim)">no vulnerable endpoints in scope</td></tr>`; return; }
+  rows.innerHTML = priorityData.map(p => {
+    const badges = [
+      p.internet_facing ? `<span style="color:var(--amber)">🌐 internet-facing</span>` : "",
+      p.malicious ? `<span style="color:var(--red)">⚠ malicious</span>` : "",
+      p.online ? `<span style="color:var(--green)">● online</span>` : `<span style="color:var(--dim)">○ offline</span>`,
+    ].filter(Boolean).join(" &nbsp; ");
+    const scoreColor = p.score >= 200 ? "var(--red)" : p.score >= 50 ? "var(--amber)" : "var(--dim)";
+    return `<tr style="cursor:pointer" data-act="openEndpoint" data-id="${esc(p.endpoint_id)}" title="open this host">
+      <td class="num" style="font-family:var(--mono); font-weight:700; color:${scoreColor}">${p.score}</td>
+      <td style="font-family:var(--mono)">${esc(p.hostname)}</td>
+      <td class="num" style="color:${p.critical ? 'var(--red)' : 'var(--dim)'}">${p.critical}</td>
+      <td class="num" style="color:${p.high ? 'var(--amber)' : 'var(--dim)'}">${p.high}</td>
+      <td class="num" style="color:var(--dim)">${p.medium}</td>
+      <td style="font-size:12px">${badges}</td>
+      <td style="color:var(--dim); font-size:12px">${esc((p.reasons || []).slice(1).join(" · "))}</td>
+    </tr>`;
+  }).join("");
+  const exposed = priorityData.filter(p => p.internet_facing).length;
+  $("priorityLegend").innerHTML = `${priorityData.length} vulnerable host${priorityData.length === 1 ? "" : "s"} · ranked by exposure-weighted risk` +
+    (exposed ? ` · <span style="color:var(--amber)">${exposed} internet-facing</span>` : "");
+}
+
+function downloadPriorityCsv() {
+  const rows = [["score", "host", "critical", "high", "medium", "low", "total", "internet_facing", "malicious", "online"]];
+  for (const p of priorityData) rows.push([p.score, p.hostname, p.critical, p.high, p.medium, p.low, p.total, p.internet_facing ? "yes" : "no", p.malicious ? "yes" : "no", p.online ? "yes" : "no"]);
+  const csv = rows.map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "varro-priority-fixes.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
 /* ---- topology view ---- */
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
@@ -1566,6 +1692,7 @@ function showTopo(on) {
   if (on && reportMode) { reportMode = false; $("reportView").style.display = "none"; }
   if (on && flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
   if (on && logsMode) { hideLogs(); }
+  if (on && priorityMode) { hidePriority(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";
