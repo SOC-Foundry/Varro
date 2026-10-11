@@ -16,9 +16,12 @@ import (
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	execMapEvents      = "events"
-	execProgTraceExec  = "trace_exec"
-	execVarUnusedEvent = "_unused_event"
+	execMapConns         = "conns"
+	execMapEvents        = "events"
+	execProgTraceConnect = "trace_connect"
+	execProgTraceExec    = "trace_exec"
+	execVarUnusedConn    = "_unused_conn"
+	execVarUnusedEvent   = "_unused_event"
 )
 
 // loadExec returns the embedded CollectionSpec for exec.
@@ -63,13 +66,15 @@ type execSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type execProgramSpecs struct {
-	TraceExec *ebpf.ProgramSpec `ebpf:"trace_exec"`
+	TraceConnect *ebpf.ProgramSpec `ebpf:"trace_connect"`
+	TraceExec    *ebpf.ProgramSpec `ebpf:"trace_exec"`
 }
 
 // execMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type execMapSpecs struct {
+	Conns  *ebpf.MapSpec `ebpf:"conns"`
 	Events *ebpf.MapSpec `ebpf:"events"`
 }
 
@@ -77,6 +82,7 @@ type execMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type execVariableSpecs struct {
+	UnusedConn  *ebpf.VariableSpec `ebpf:"_unused_conn"`
 	UnusedEvent *ebpf.VariableSpec `ebpf:"_unused_event"`
 }
 
@@ -100,11 +106,13 @@ func (o *execObjects) Close() error {
 //
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execMaps struct {
+	Conns  *ebpf.Map `ebpf:"conns"`
 	Events *ebpf.Map `ebpf:"events"`
 }
 
 func (m *execMaps) Close() error {
 	return _ExecClose(
+		m.Conns,
 		m.Events,
 	)
 }
@@ -113,6 +121,7 @@ func (m *execMaps) Close() error {
 //
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execVariables struct {
+	UnusedConn  *ebpf.Variable `ebpf:"_unused_conn"`
 	UnusedEvent *ebpf.Variable `ebpf:"_unused_event"`
 }
 
@@ -120,11 +129,13 @@ type execVariables struct {
 //
 // It can be passed to loadExecObjects or ebpf.CollectionSpec.LoadAndAssign.
 type execPrograms struct {
-	TraceExec *ebpf.Program `ebpf:"trace_exec"`
+	TraceConnect *ebpf.Program `ebpf:"trace_connect"`
+	TraceExec    *ebpf.Program `ebpf:"trace_exec"`
 }
 
 func (p *execPrograms) Close() error {
 	return _ExecClose(
+		p.TraceConnect,
 		p.TraceExec,
 	)
 }

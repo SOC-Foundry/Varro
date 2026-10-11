@@ -38,12 +38,24 @@ type Snapshot struct {
 	// ones the periodic process scan would miss.
 	EBPF  bool         `json:"ebpf"`
 	Execs []ExecSample `json:"execs,omitempty"`
+	// Conns are short-lived outbound connects captured by the eBPF connect
+	// sensor since the last sample (process-attributed).
+	Conns []ConnSample `json:"conns,omitempty"`
 }
 
 // ExecSample is one process exec observed by the eBPF sensor.
 type ExecSample struct {
 	PID  uint32 `json:"pid"`
 	Comm string `json:"comm"`
+}
+
+// ConnSample is one short-lived outbound TCP connect observed by the eBPF
+// sensor — process-attributed, catching connections the periodic scan misses.
+type ConnSample struct {
+	PID  uint32 `json:"pid"`
+	Comm string `json:"comm"`
+	Dest string `json:"dest"`
+	Port uint16 `json:"port"`
 }
 
 // ProcHash is the SHA-256 of a newly-observed process's executable.

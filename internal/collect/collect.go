@@ -58,6 +58,7 @@ type Collector struct {
 	cloudChecked   bool
 
 	execTracer execDrainer // eBPF exec sensor, nil when unavailable
+	connTracer connDrainer // eBPF connect sensor, nil when unavailable
 	dns        dnsLookup   // passive DNS watcher, nil when unavailable
 
 	lastPosture     []model.PostureCheck
@@ -81,6 +82,15 @@ type execDrainer interface {
 // SetExecTracer attaches the kernel exec sensor; drained events ride along on
 // each snapshot.
 func (c *Collector) SetExecTracer(t execDrainer) { c.execTracer = t }
+
+// connDrainer is the eBPF connect sensor the agent injects (short-lived
+// outbound connects with process attribution).
+type connDrainer interface {
+	DrainConns() []model.ConnSample
+}
+
+// SetConnTracer attaches the kernel connect sensor.
+func (c *Collector) SetConnTracer(t connDrainer) { c.connTracer = t }
 
 // dnsLookup resolves a remote IP to the hostname the host looked it up by, so
 // flows/connections can be labeled with real domains.
@@ -171,6 +181,18 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 			}
 			seen[e.Comm] = true
 			snap.Execs = append(snap.Execs, e)
+		}
+	}
+	if c.connTracer != nil {
+		// Distinct (comm,dest,port) short-lived connects since last sample, capped.
+		seen := map[string]bool{}
+		for _, cn := range c.connTracer.DrainConns() {
+			k := fmt.Sprintf("%s|%s|%d", cn.Comm, cn.Dest, cn.Port)
+			if seen[k] || len(snap.Conns) >= 100 {
+				continue
+			}
+			seen[k] = true
+			snap.Conns = append(snap.Conns, cn)
 		}
 	}
 	snap.Inventory = c.pendingInv

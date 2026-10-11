@@ -73,9 +73,10 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 	// kernel, no privilege, non-Linux).
 	if tr, err := ebpf.Start(); err == nil {
 		c.SetExecTracer(execAdapter{tr})
-		log.Info("eBPF exec sensor active")
+		c.SetConnTracer(connAdapter{tr})
+		log.Info("eBPF sensors active (exec + connect)")
 	} else {
-		log.Info("eBPF exec sensor unavailable, continuing without it", "reason", err)
+		log.Info("eBPF sensors unavailable, continuing without them", "reason", err)
 	}
 
 	// Best-effort passive DNS watcher; labels topology with real domains.
@@ -107,6 +108,18 @@ func (a execAdapter) Drain() []model.ExecSample {
 	out := make([]model.ExecSample, 0, len(evs))
 	for _, e := range evs {
 		out = append(out, model.ExecSample{PID: e.PID, Comm: e.Comm})
+	}
+	return out
+}
+
+// connAdapter converts the ebpf tracer's connect events to the model type.
+type connAdapter struct{ tr *ebpf.Tracer }
+
+func (a connAdapter) DrainConns() []model.ConnSample {
+	evs := a.tr.DrainConns()
+	out := make([]model.ConnSample, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, model.ConnSample{PID: e.PID, Comm: e.Comm, Dest: e.Dest, Port: e.Port})
 	}
 	return out
 }

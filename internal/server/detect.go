@@ -102,6 +102,22 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 		}
 	}
 
+	// 1b. Short-lived reverse shell / recon connect caught by the eBPF connect
+	//     sensor — a shell or network tool that connected out and may have
+	//     already exited before the periodic scan could see it.
+	for _, cn := range snap.Conns {
+		comm := baseComm(cn.Comm)
+		dest := cn.Dest + ":" + itoa(int(cn.Port))
+		if shellTools[comm] {
+			fire("reverse_shell", "HIGH", cn.Comm+dest,
+				snap.Hostname+": "+cn.Comm+" made a short-lived outbound connection to "+dest+
+					" (eBPF-captured shell/network tool — possible reverse shell)")
+		} else if reconTools[comm] {
+			fire("recon_tool", "MEDIUM", cn.Comm+dest,
+				snap.Hostname+": reconnaissance tool "+cn.Comm+" connected to "+dest+" (eBPF-captured)")
+		}
+	}
+
 	// 2. Backdoor listener: a shell or network tool bound to a port.
 	for _, lp := range snap.Security.ListeningPorts {
 		if shellTools[baseComm(lp.Process)] {

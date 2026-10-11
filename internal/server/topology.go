@@ -441,6 +441,23 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 				rs.count = 1 // ensure flow-only remotes still surface
 			}
 		}
+		// eBPF-captured short-lived outbound connects — external destinations
+		// the point-in-time connection scan may have missed.
+		for _, cn := range snap.Conns {
+			ip := cn.Dest
+			if ip == "" || fleetIPs[ip] || s.ips.lookup(ip) != "" {
+				continue
+			}
+			if p := net.ParseIP(ip); p == nil || p.IsLoopback() {
+				continue
+			}
+			a := ext[id]
+			if a == nil {
+				a = &extAgg{remotes: map[string]*remoteStat{}}
+				ext[id] = a
+			}
+			remoteOf(a, ip).count++
+		}
 	}
 	// Recent high-signal events per endpoint → "critical" node risk.
 	hotByEndpoint := map[string]map[string]bool{}

@@ -39,6 +39,30 @@ func TestDetectMitreMapping(t *testing.T) {
 	}
 }
 
+// TestDetectShortLivedConnect verifies the eBPF connect sensor catches a
+// short-lived reverse-shell connection the periodic scan would miss.
+func TestDetectShortLivedConnect(t *testing.T) {
+	srv, st := newTestServer(t)
+	ctx := context.Background()
+	snap := &model.Snapshot{
+		AgentID:  "ep1",
+		Hostname: "host1",
+		Conns:    []model.ConnSample{{PID: 5, Comm: "nc", Dest: "203.0.113.9", Port: 4444}},
+	}
+	srv.detect(ctx, "org1", snap)
+	evs, _ := st.Events(ctx, "ep1", nil, 10)
+	var found bool
+	for _, e := range evs {
+		if e.Type == model.EventDetection && strings.Contains(e.Message, "reverse_shell") &&
+			strings.Contains(e.Message, "203.0.113.9:4444") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected reverse_shell detection from eBPF connect; events=%v", evs)
+	}
+}
+
 // TestMitreTechniqueCoverage ensures no behavioral rule ships without a mapping.
 func TestMitreTechniqueCoverage(t *testing.T) {
 	for _, rule := range []string{"reverse_shell", "shell_listener", "crypto_miner", "recon_tool", "exec_storm"} {
