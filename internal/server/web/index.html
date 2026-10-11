@@ -1435,18 +1435,26 @@ function tickFlowMap() {
     ctx.fillStyle = d.t.malicious ? "rgba(248,81,73,.9)" : "rgba(63,185,80,.85)";
     ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill();
   }
-  // labels: biggest volume first, skip any that would overlap one already drawn
+  // labels: biggest volume first; try right/left/above/below so small dots
+  // still get named when there's room, skipping any that would overlap.
   ctx.font = "10px ui-monospace,monospace";
   const placed = [];
-  const fits = (x, y, wd) => !placed.some(b => Math.abs(b.y - y) < 11 && x < b.x + b.w && b.x < x + wd);
+  const overlaps = (x, y, wd) => placed.some(b => Math.abs(b.y - y) < 11 && x < b.x + b.w && b.x < x + wd);
   for (const d of [...dots].sort((a, b) => b.m - a.m)) {
-    if (placed.length >= 18) break;
+    if (placed.length >= 20) break;
     const txt = d.t.dest.length > 24 ? d.t.dest.slice(0, 23) + "…" : d.t.dest;
-    const lx = d.x + d.r + 3, ly = d.y + 3, wd = txt.length * 5.6;
-    if (!fits(lx, ly, wd)) continue;
-    placed.push({ x: lx, y: ly, w: wd });
+    const wd = txt.length * 5.6;
+    const cands = [
+      [d.x + d.r + 3, d.y + 3],
+      [d.x - d.r - 3 - wd, d.y + 3],
+      [d.x - wd / 2, d.y - d.r - 5],
+      [d.x - wd / 2, d.y + d.r + 11],
+    ];
+    const pos = cands.find(([x, y]) => x > 2 && x + wd < w - 2 && !overlaps(x, y, wd));
+    if (!pos) continue;
+    placed.push({ x: pos[0], y: pos[1], w: wd });
     ctx.fillStyle = d.t.malicious ? "#f85149" : "#8b949e";
-    ctx.fillText(txt, lx, ly);
+    ctx.fillText(txt, pos[0], pos[1]);
   }
   // home marker
   ctx.fillStyle = "#e6edf3"; ctx.beginPath(); ctx.arc(home.x, home.y, 5, 0, 7); ctx.fill();

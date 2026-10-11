@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"net"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -96,6 +97,25 @@ func (c *Collector) sampleFlows(snap *model.Snapshot) {
 		a.in += replyBytes
 	}
 
+	// conntrack enumerates flows but byte counts need nf_conntrack_acct — and on
+	// hosts where the module isn't even loaded there are no conntrack flows at
+	// all. Overlay per-socket tcp_info bytes from the sock_diag API (via `ss`),
+	// which carries cumulative bytes for live connections. Portable, no host
+	// config; fills byte counts and adds connections conntrack didn't have.
+	for key, b := range ssFlows() {
+		a := flows[key]
+		if a == nil {
+			a = &agg{proto: "tcp"}
+			flows[key] = a
+		}
+		if a.out == 0 {
+			a.out = b[0]
+		}
+		if a.in == 0 {
+			a.in = b[1]
+		}
+	}
+
 	out := make([]model.Flow, 0, len(flows))
 	for remote, a := range flows {
 		out = append(out, model.Flow{Proto: a.proto, Remote: remote, BytesOut: a.out, BytesIn: a.in})
@@ -108,6 +128,67 @@ func (c *Collector) sampleFlows(snap *model.Snapshot) {
 		out = out[:maxFlows]
 	}
 	snap.Network.Flows = out
+}
+
+// ssFlows reads per-socket cumulative byte counts from `ss -tin` (tcp, info,
+// numeric — the sock_diag tcp_info). Returns remote "ip:port" -> [out, in].
+// Best-effort: a missing `ss` or parse miss just yields fewer/zero entries.
+func ssFlows() map[string][2]uint64 {
+	out := map[string][2]uint64{}
+	b, err := exec.Command("ss", "-tin").Output()
+	if err != nil {
+		return out
+	}
+	var peer string // remote of the socket whose info line follows
+	for _, line := range strings.Split(string(b), "\n") {
+		if line == "" {
+			continue
+		}
+		if line[0] != ' ' && line[0] != '\t' {
+			// Socket line: State Recv-Q Send-Q Local:Port Peer:Port …
+			f := strings.Fields(line)
+			peer = ""
+			if len(f) >= 5 {
+				peer = f[4]
+			}
+			continue
+		}
+		// Indented info line for the preceding socket.
+		if peer == "" {
+			continue
+		}
+		ip, port := splitPeerAddr(peer)
+		if ip == "" || net.ParseIP(ip) == nil {
+			continue
+		}
+		var bo, bi uint64
+		for _, tok := range strings.Fields(line) {
+			if v, ok := strings.CutPrefix(tok, "bytes_sent:"); ok {
+				bo = parseUint(v)
+			} else if v, ok := strings.CutPrefix(tok, "bytes_acked:"); ok && bo == 0 {
+				bo = parseUint(v)
+			} else if v, ok := strings.CutPrefix(tok, "bytes_received:"); ok {
+				bi = parseUint(v)
+			}
+		}
+		if bo == 0 && bi == 0 {
+			continue
+		}
+		key := ip + ":" + port
+		cur := out[key]
+		out[key] = [2]uint64{cur[0] + bo, cur[1] + bi}
+	}
+	return out
+}
+
+// splitPeerAddr splits ss's "ip:port" or "[v6]:port" peer field.
+func splitPeerAddr(s string) (ip, port string) {
+	i := strings.LastIndex(s, ":")
+	if i < 0 {
+		return "", ""
+	}
+	ip, port = strings.Trim(s[:i], "[]"), s[i+1:]
+	return ip, port
 }
 
 func parseUint(s string) uint64 {
