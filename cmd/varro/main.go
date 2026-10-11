@@ -81,6 +81,8 @@ func main() {
 		err = cli.UserAdmin(ctx, os.Args[2:])
 	case "endpoint-remove":
 		err = cli.EndpointRemove(ctx, os.Args[2:])
+	case "endpoint-move-org":
+		err = cli.EndpointMoveOrg(ctx, os.Args[2:])
 	case "migrate-db":
 		err = runMigrateDB(os.Args[2:])
 	case "inventory":
@@ -130,6 +132,7 @@ Usage:
   varro org-delete <org>                  [--token ADMIN]   delete an empty org
   varro user-admin <email> grant|revoke   [--token ADMIN]   instance-admin status
   varro endpoint-remove <endpoint>        [--token ADMIN]   delete an endpoint + its data
+  varro endpoint-move-org <endpoint> <org> [--token ADMIN]  reassign an endpoint to another org
 
 The agent and the query commands default --server to $VARRO_SERVER; tokens
 default to $VARRO_TOKEN (and SMTP password to $VARRO_SMTP_PASS). The agent's

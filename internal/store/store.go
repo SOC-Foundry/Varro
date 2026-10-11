@@ -515,6 +515,38 @@ func (s *Store) DeleteEndpoint(ctx context.Context, endpointID string) (bool, er
 	return n > 0, tx.Commit()
 }
 
+// MoveAgentOrg reassigns an endpoint to a different org. It updates both the
+// endpoint row (for immediate effect) and the agent's token->org binding (the
+// source of truth re-applied on every ingest), so the move survives the next
+// snapshot. Returns false if the endpoint does not exist. The caller must
+// ensure orgID is a real org (the FK will also reject an unknown one).
+func (s *Store) MoveAgentOrg(ctx context.Context, agentID, orgID string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	// Rebind the agent's token so future ingests keep the new org. An endpoint
+	// enrolled under the master token has no agent_tokens row; that's fine.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE agent_tokens SET org_id = ? WHERE agent_id = ?`, orgID, agentID); err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE endpoints SET org_id = ? WHERE id = ?`, orgID, agentID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil
+	}
+	return true, tx.Commit()
+}
+
 // EndpointOrg returns the org an endpoint belongs to, or "" if unknown.
 func (s *Store) EndpointOrg(ctx context.Context, endpointID string) (string, error) {
 	var orgID string

@@ -251,6 +251,37 @@ func EndpointRemove(ctx context.Context, args []string) error {
 	return nil
 }
 
+// EndpointMoveOrg reassigns an endpoint to a different org (instance admin).
+func EndpointMoveOrg(ctx context.Context, args []string) error {
+	name, rest := splitArgs(args)
+	var orgRef string
+	if len(rest) > 0 && rest[0][0] != '-' {
+		orgRef, rest = rest[0], rest[1:]
+	}
+	fs := flag.NewFlagSet("endpoint-move-org", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	if name == "" || orgRef == "" {
+		return fmt.Errorf("usage: varro endpoint-move-org <endpoint> <org-id|org-name> [--server URL] [--token ADMIN]")
+	}
+
+	ep, err := resolveEndpoint(ctx, *base, *token, name)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		Endpoint string `json:"endpoint"`
+		Org      string `json:"org"`
+	}
+	if err := putJSON(ctx, *base, *token, "/api/v1/endpoints/"+url.PathEscape(ep.ID)+"/org",
+		map[string]string{"org": orgRef}, &out); err != nil {
+		return err
+	}
+	fmt.Printf("endpoint %s (%s) moved to org %s\n", ep.Hostname, ep.ID, out.Org)
+	return nil
+}
+
 // UserAdmin grants or revokes instance-admin status (instance admin).
 func UserAdmin(ctx context.Context, args []string) error {
 	email, rest := splitArgs(args)

@@ -435,6 +435,40 @@ func (s *Server) handleEndpointRemove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"removed": true})
 }
 
+// handleEndpointMoveOrg reassigns an endpoint to a different org. Moving an
+// asset between tenants is an instance-admin action. Body: {"org": "<id|name>"}.
+func (s *Server) handleEndpointMoveOrg(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Org string `json:"org"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Org == "" {
+		http.Error(w, "body must be {\"org\": \"<id or name>\"}", http.StatusBadRequest)
+		return
+	}
+	org, err := s.store.OrgByRef(r.Context(), req.Org)
+	if err != nil {
+		http.Error(w, "unknown org: "+req.Org, http.StatusNotFound)
+		return
+	}
+	id := r.PathValue("id")
+	moved, err := s.store.MoveAgentOrg(r.Context(), id, org.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !moved {
+		http.Error(w, "unknown endpoint", http.StatusNotFound)
+		return
+	}
+	s.log.Info("endpoint moved org", "endpoint", id, "org", org.ID)
+	s.audit(r, "endpoint.move_org", org.ID, "moved endpoint "+id+" to org "+org.ID)
+	writeJSON(w, map[string]string{"endpoint": id, "org": org.ID})
+}
+
 // handleOrgRemoveMember drops a member from an org (org admins and up).
 func (s *Server) handleOrgRemoveMember(w http.ResponseWriter, r *http.Request) {
 	org, err := s.store.OrgByRef(r.Context(), r.PathValue("id"))
