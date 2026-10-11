@@ -255,8 +255,9 @@ func runServer(ctx context.Context, args []string) error {
 		"enrich external topology remotes with country/ASN (sends observed remote IPs to a third-party lookup service)")
 	autoUpgrade := fs.Bool("agent-auto-upgrade", true,
 		"push the desired agent version so agents self-upgrade from GitHub releases")
-	desiredVersion := fs.String("agent-desired-version", "",
-		"pin agents to a specific released version (default: this server's version)")
+	desiredVersion := fs.String("agent-desired-version", os.Getenv("VARRO_AGENT_DESIRED_VERSION"),
+		"pin agents to a specific released version (default: $VARRO_AGENT_DESIRED_VERSION, else this server's version). "+
+			"Pin both collectors to the same value so rolling deploys don't flap agents across the load balancer.")
 	releaseRepo := fs.String("release-repo", "SOC-Foundry/Varro",
 		"GitHub repo agents download release binaries from")
 	backupGCS := fs.String("backup-gcs", os.Getenv("VARRO_BACKUP_GCS"),
