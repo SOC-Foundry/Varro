@@ -489,6 +489,15 @@ type ComplianceReport struct {
 	FailedServices int            `json:"failed_services"` // endpoints with a failed service
 }
 
+// SavedView is a named, persisted metric-explorer configuration (its spec is an
+// opaque JSON blob the dashboard interprets: metric, endpoints, time range).
+type SavedView struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Spec      string    `json:"spec"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // VulnPriority ranks one endpoint's vulnerability exposure by runtime
 // reachability — the "what to patch first" signal: raw CVSS weight scaled by
 // how reachable/active the host actually is.

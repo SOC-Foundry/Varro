@@ -110,6 +110,15 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 CREATE INDEX IF NOT EXISTS idx_logs_org_ts ON logs(org_id, ts);
 CREATE INDEX IF NOT EXISTS idx_logs_endpoint_ts ON logs(endpoint_id, ts);
+CREATE TABLE IF NOT EXISTS saved_views (
+	id         INTEGER PRIMARY KEY,
+	owner      TEXT NOT NULL,
+	org_id     TEXT NOT NULL DEFAULT '',
+	name       TEXT NOT NULL,
+	spec       TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saved_views_owner ON saved_views(owner);
 CREATE TABLE IF NOT EXISTS alerts (
 	id          INTEGER PRIMARY KEY,
 	rule        TEXT NOT NULL,
