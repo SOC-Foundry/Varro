@@ -26,14 +26,6 @@ const (
 // accounting (net.netfilter.nf_conntrack_acct=1); without it bytes read 0 but
 // the flows are still enumerated.
 func (c *Collector) sampleFlows(snap *model.Snapshot) {
-	f, err := os.Open(conntrackPath)
-	if err != nil {
-		if f, err = os.Open(conntrackLegacy); err != nil {
-			return // conntrack module not loaded (no netfilter state tracking)
-		}
-	}
-	defer f.Close()
-
 	// Aggregate by remote ip:port, summing original-direction (out) and
 	// reply-direction (in) bytes.
 	type agg struct {
@@ -42,66 +34,74 @@ func (c *Collector) sampleFlows(snap *model.Snapshot) {
 	}
 	flows := map[string]*agg{}
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 7 {
-			continue
-		}
-		proto := ""
-		for _, fld := range fields[:4] {
-			if fld == "tcp" || fld == "udp" {
-				proto = fld
-				break
+	// conntrack enumerates flows (with bytes when nf_conntrack_acct is on). On
+	// hosts where the module isn't loaded the file is absent — skip it; the
+	// tcp_info overlay below still gives byte-counted flows either way.
+	f, err := os.Open(conntrackPath)
+	if err != nil {
+		f, err = os.Open(conntrackLegacy)
+	}
+	if err == nil {
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			fields := strings.Fields(sc.Text())
+			if len(fields) < 7 {
+				continue
 			}
-		}
-		if proto == "" {
-			continue
-		}
-		// Parse the two "src=/dst=/sport=/dport=/bytes=" tuples. The first is
-		// the original direction (local->remote); its dst is the remote peer.
-		var origDst, origDport string
-		var origBytes, replyBytes uint64
-		seenSrc := 0
-		for _, fld := range fields {
-			switch {
-			case strings.HasPrefix(fld, "src="):
-				seenSrc++
-			case strings.HasPrefix(fld, "dst=") && seenSrc == 1:
-				origDst = fld[4:]
-			case strings.HasPrefix(fld, "dport=") && seenSrc == 1:
-				origDport = fld[6:]
-			case strings.HasPrefix(fld, "bytes="):
-				v := parseUint(fld[6:])
-				if seenSrc == 1 {
-					origBytes += v
-				} else {
-					replyBytes += v
+			proto := ""
+			for _, fld := range fields[:4] {
+				if fld == "tcp" || fld == "udp" {
+					proto = fld
+					break
 				}
 			}
+			if proto == "" {
+				continue
+			}
+			// Parse the two "src=/dst=/sport=/dport=/bytes=" tuples. The first is
+			// the original direction (local->remote); its dst is the remote peer.
+			var origDst, origDport string
+			var origBytes, replyBytes uint64
+			seenSrc := 0
+			for _, fld := range fields {
+				switch {
+				case strings.HasPrefix(fld, "src="):
+					seenSrc++
+				case strings.HasPrefix(fld, "dst=") && seenSrc == 1:
+					origDst = fld[4:]
+				case strings.HasPrefix(fld, "dport=") && seenSrc == 1:
+					origDport = fld[6:]
+				case strings.HasPrefix(fld, "bytes="):
+					v := parseUint(fld[6:])
+					if seenSrc == 1 {
+						origBytes += v
+					} else {
+						replyBytes += v
+					}
+				}
+			}
+			if origDst == "" {
+				continue
+			}
+			if ip := net.ParseIP(origDst); ip == nil || ip.IsLoopback() {
+				continue
+			}
+			key := origDst + ":" + origDport
+			a := flows[key]
+			if a == nil {
+				a = &agg{proto: proto}
+				flows[key] = a
+			}
+			a.out += origBytes
+			a.in += replyBytes
 		}
-		if origDst == "" {
-			continue
-		}
-		if ip := net.ParseIP(origDst); ip == nil || ip.IsLoopback() {
-			continue
-		}
-		key := origDst + ":" + origDport
-		a := flows[key]
-		if a == nil {
-			a = &agg{proto: proto}
-			flows[key] = a
-		}
-		a.out += origBytes
-		a.in += replyBytes
 	}
 
-	// conntrack enumerates flows but byte counts need nf_conntrack_acct — and on
-	// hosts where the module isn't even loaded there are no conntrack flows at
-	// all. Overlay per-socket tcp_info bytes from the sock_diag API (via `ss`),
-	// which carries cumulative bytes for live connections. Portable, no host
-	// config; fills byte counts and adds connections conntrack didn't have.
+	// Overlay per-socket tcp_info bytes from the sock_diag API (via `ss`), which
+	// carries cumulative bytes for live connections — portable, no host config.
+	// Fills byte counts conntrack lacked and adds connections it didn't have.
 	for key, b := range ssFlows() {
 		a := flows[key]
 		if a == nil {
