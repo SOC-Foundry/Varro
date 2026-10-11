@@ -35,7 +35,7 @@ func (s *Store) CreateOrg(ctx context.Context, name string) (model.Org, error) {
 
 func (s *Store) Orgs(ctx context.Context) ([]model.Org, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, auto_join_domain, created_at FROM orgs ORDER BY name`)
+		`SELECT id, name, auto_join_domain, infrastructure, created_at FROM orgs ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -44,9 +44,11 @@ func (s *Store) Orgs(ctx context.Context) ([]model.Org, error) {
 	for rows.Next() {
 		var o model.Org
 		var created int64
-		if err := rows.Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &created); err != nil {
+		var infra int
+		if err := rows.Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &infra, &created); err != nil {
 			return nil, err
 		}
+		o.Infrastructure = infra != 0
 		o.CreatedAt = time.Unix(created, 0).UTC()
 		out = append(out, o)
 	}
@@ -57,17 +59,52 @@ func (s *Store) Orgs(ctx context.Context) ([]model.Org, error) {
 func (s *Store) OrgByRef(ctx context.Context, ref string) (model.Org, error) {
 	var o model.Org
 	var created int64
+	var infra int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, auto_join_domain, created_at FROM orgs WHERE id = ? OR name = ?`, ref, ref).
-		Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &created)
+		`SELECT id, name, auto_join_domain, infrastructure, created_at FROM orgs WHERE id = ? OR name = ?`, ref, ref).
+		Scan(&o.ID, &o.Name, &o.AutoJoinDomain, &infra, &created)
 	if err == sql.ErrNoRows {
 		return model.Org{}, fmt.Errorf("no org %q", ref)
 	}
 	if err != nil {
 		return model.Org{}, err
 	}
+	o.Infrastructure = infra != 0
 	o.CreatedAt = time.Unix(created, 0).UTC()
 	return o, nil
+}
+
+// SetOrgInfrastructure flags (or unflags) an org as monitoring infrastructure,
+// which excludes it from the "all orgs" compliance aggregate.
+func (s *Store) SetOrgInfrastructure(ctx context.Context, orgID string, infra bool) error {
+	v := 0
+	if infra {
+		v = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE orgs SET infrastructure = ? WHERE id = ?`, v, orgID)
+	return err
+}
+
+// NonInfraOrgIDs lists the IDs of every org not flagged as infrastructure. Used
+// to scope the compliance report when no specific org is selected, so infra
+// doesn't skew tenant numbers.
+func (s *Store) NonInfraOrgIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM orgs WHERE infrastructure = 0 ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // DeleteOrg removes an empty org (its tokens and memberships included).

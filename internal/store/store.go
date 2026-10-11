@@ -257,6 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_toposnap_org_ts ON topology_snapshots(org_id, ts)
 		`ALTER TABLE alerts ADD COLUMN ack_at INTEGER`,
 		`ALTER TABLE alerts ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE alerts ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE orgs ADD COLUMN infrastructure INTEGER NOT NULL DEFAULT 0`,
 	} {
 		// Route through the dialect rewriter so INTEGER->BIGINT etc. apply on PG.
 		if _, err := s.db.Exec(s.db.ddl(stmt)); err != nil &&

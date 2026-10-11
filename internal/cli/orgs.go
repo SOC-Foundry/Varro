@@ -282,6 +282,44 @@ func EndpointMoveOrg(ctx context.Context, args []string) error {
 	return nil
 }
 
+// OrgInfra flags or unflags an org as monitoring infrastructure, which excludes
+// it from the "all orgs" compliance aggregate (instance admin).
+func OrgInfra(ctx context.Context, args []string) error {
+	ref, rest := splitArgs(args)
+	var action string
+	if len(rest) > 0 && rest[0][0] != '-' {
+		action, rest = rest[0], rest[1:]
+	}
+	fs := flag.NewFlagSet("org-infra", flag.ExitOnError)
+	base := serverFlag(fs)
+	token := tokenFlag(fs)
+	fs.Parse(rest)
+	var infra bool
+	switch action {
+	case "on", "true", "yes":
+		infra = true
+	case "off", "false", "no":
+		infra = false
+	default:
+		return fmt.Errorf("usage: varro org-infra <org> on|off [--server URL] [--token ADMIN]")
+	}
+	if ref == "" {
+		return fmt.Errorf("usage: varro org-infra <org> on|off [--server URL] [--token ADMIN]")
+	}
+
+	var out model.Org
+	if err := putJSON(ctx, *base, *token, "/api/v1/orgs/"+url.PathEscape(ref),
+		map[string]bool{"infrastructure": infra}, &out); err != nil {
+		return err
+	}
+	state := "cleared"
+	if out.Infrastructure {
+		state = "set"
+	}
+	fmt.Printf("org %s (%s): infrastructure flag %s\n", out.Name, out.ID, state)
+	return nil
+}
+
 // UserAdmin grants or revokes instance-admin status (instance admin).
 func UserAdmin(ctx context.Context, args []string) error {
 	email, rest := splitArgs(args)

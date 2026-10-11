@@ -83,6 +83,8 @@ func main() {
 		err = cli.EndpointRemove(ctx, os.Args[2:])
 	case "endpoint-move-org":
 		err = cli.EndpointMoveOrg(ctx, os.Args[2:])
+	case "org-infra":
+		err = cli.OrgInfra(ctx, os.Args[2:])
 	case "migrate-db":
 		err = runMigrateDB(os.Args[2:])
 	case "inventory":
@@ -133,6 +135,7 @@ Usage:
   varro user-admin <email> grant|revoke   [--token ADMIN]   instance-admin status
   varro endpoint-remove <endpoint>        [--token ADMIN]   delete an endpoint + its data
   varro endpoint-move-org <endpoint> <org> [--token ADMIN]  reassign an endpoint to another org
+  varro org-infra <org> on|off            [--token ADMIN]   flag an org as infra (excluded from all-orgs report)
 
 The agent and the query commands default --server to $VARRO_SERVER; tokens
 default to $VARRO_TOKEN (and SMTP password to $VARRO_SMTP_PASS). The agent's

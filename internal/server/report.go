@@ -27,6 +27,21 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 // buildReport aggregates the latest snapshot of every in-scope endpoint plus the
 // vulnerability store into a compliance report.
 func (s *Server) buildReport(ctx context.Context, scope []string) (model.ComplianceReport, error) {
+	// With no specific org selected (admin "all orgs"), exclude infrastructure
+	// orgs so monitoring infra doesn't skew tenant compliance numbers. A
+	// specific org selection — even an infra one — is always honored as-is.
+	if scope == nil {
+		ids, err := s.store.NonInfraOrgIDs(ctx)
+		if err != nil {
+			return model.ComplianceReport{}, err
+		}
+		// A non-nil empty slice would render as `IN ()` (invalid on Postgres);
+		// use a sentinel that matches no org so the report is simply empty.
+		if len(ids) == 0 {
+			ids = []string{""}
+		}
+		scope = ids
+	}
 	eps, err := s.store.Endpoints(ctx, scope)
 	if err != nil {
 		return model.ComplianceReport{}, err

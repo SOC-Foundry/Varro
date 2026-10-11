@@ -37,7 +37,7 @@ func TestBuildReportAggregates(t *testing.T) {
 			Health: model.HealthStatus{PendingUpdates: 7, RebootRequired: true, FailedServices: []string{"nginx"}},
 		},
 	}
-	if err := st.Insert(ctx, snaps, ""); err != nil {
+	if err := st.Insert(ctx, snaps, model.DefaultOrg); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
@@ -70,5 +70,61 @@ func TestBuildReportAggregates(t *testing.T) {
 	}
 	if rep.PostureChecks[0].Fail != 1 {
 		t.Fatalf("firewall fail = %d, want 1", rep.PostureChecks[0].Fail)
+	}
+}
+
+// TestBuildReportExcludesInfraOrg verifies that an infrastructure-flagged org is
+// left out of the "all orgs" aggregate (scope nil) but still reported when its
+// org is explicitly selected.
+func TestBuildReportExcludesInfraOrg(t *testing.T) {
+	srv, st := newTestServer(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	infra, err := st.CreateOrg(ctx, "Infrastructure")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A tenant endpoint in the default org and an infra endpoint in the infra org.
+	tenant := &model.Snapshot{AgentID: "tenant-1", Hostname: "tenant", Timestamp: now,
+		Host: model.HostInfo{OS: "linux"}}
+	infraEP := &model.Snapshot{AgentID: "infra-1", Hostname: "collector", Timestamp: now,
+		Host: model.HostInfo{OS: "linux"}}
+	if err := st.Insert(ctx, []*model.Snapshot{tenant}, model.DefaultOrg); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Insert(ctx, []*model.Snapshot{infraEP}, infra.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Before flagging: all-orgs aggregate sees both.
+	rep, err := srv.buildReport(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Endpoints != 2 {
+		t.Fatalf("before flag: endpoints = %d, want 2", rep.Endpoints)
+	}
+
+	// Flag the infra org and re-run: the all-orgs aggregate now excludes it.
+	if err := st.SetOrgInfrastructure(ctx, infra.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = srv.buildReport(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Endpoints != 1 {
+		t.Fatalf("after flag: all-orgs endpoints = %d, want 1 (infra excluded)", rep.Endpoints)
+	}
+
+	// Explicitly selecting the infra org still reports it.
+	rep, err = srv.buildReport(ctx, []string{infra.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Endpoints != 1 {
+		t.Fatalf("explicit infra scope: endpoints = %d, want 1", rep.Endpoints)
 	}
 }

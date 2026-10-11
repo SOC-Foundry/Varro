@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -145,27 +146,40 @@ func (s *Server) handleOrgUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		AutoJoinDomain *string `json:"auto_join_domain"`
+		Infrastructure *bool   `json:"infrastructure"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.AutoJoinDomain == nil {
-		http.Error(w, "bad request: need {\"auto_join_domain\": ...}", http.StatusBadRequest)
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil ||
+		(req.AutoJoinDomain == nil && req.Infrastructure == nil) {
+		http.Error(w, "bad request: need {\"auto_join_domain\": ...} and/or {\"infrastructure\": true|false}", http.StatusBadRequest)
 		return
 	}
-	domain := strings.ToLower(strings.TrimSpace(*req.AutoJoinDomain))
-	if freeMailDomains[domain] {
-		http.Error(w, "refusing to auto-join a shared free-mail domain", http.StatusBadRequest)
-		return
+	if req.AutoJoinDomain != nil {
+		domain := strings.ToLower(strings.TrimSpace(*req.AutoJoinDomain))
+		if freeMailDomains[domain] {
+			http.Error(w, "refusing to auto-join a shared free-mail domain", http.StatusBadRequest)
+			return
+		}
+		if domain != "" && !strings.Contains(domain, ".") {
+			http.Error(w, "not a valid domain", http.StatusBadRequest)
+			return
+		}
+		if err := s.store.SetOrgDomain(r.Context(), org.ID, domain); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.log.Info("org auto-join domain set", "org", org.ID, "domain", domain)
+		s.audit(r, "org.set_domain", org.ID, "auto-join domain = "+domain)
 	}
-	if domain != "" && !strings.Contains(domain, ".") {
-		http.Error(w, "not a valid domain", http.StatusBadRequest)
-		return
+	if req.Infrastructure != nil {
+		if err := s.store.SetOrgInfrastructure(r.Context(), org.ID, *req.Infrastructure); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.log.Info("org infrastructure flag set", "org", org.ID, "infrastructure", *req.Infrastructure)
+		s.audit(r, "org.set_infrastructure", org.ID, fmt.Sprintf("infrastructure = %v", *req.Infrastructure))
 	}
-	if err := s.store.SetOrgDomain(r.Context(), org.ID, domain); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.log.Info("org auto-join domain set", "org", org.ID, "domain", domain)
-	s.audit(r, "org.set_domain", org.ID, "auto-join domain = "+domain)
-	writeJSON(w, map[string]string{"org_id": org.ID, "auto_join_domain": domain})
+	out, _ := s.store.OrgByRef(r.Context(), org.ID)
+	writeJSON(w, out)
 }
 
 // handleUserAdmin grants or revokes instance-admin status (instance admin

@@ -449,7 +449,11 @@ type Org struct {
 	Name string `json:"name"`
 	// AutoJoinDomain, when set, automatically adds anyone signing in with a
 	// verified email at this domain as a member of this org.
-	AutoJoinDomain string    `json:"auto_join_domain,omitempty"`
+	AutoJoinDomain string `json:"auto_join_domain,omitempty"`
+	// Infrastructure marks an org as holding monitoring infrastructure (e.g. the
+	// collectors themselves). Such orgs are excluded from the "all orgs"
+	// compliance aggregate so they don't skew tenant numbers.
+	Infrastructure bool      `json:"infrastructure,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
