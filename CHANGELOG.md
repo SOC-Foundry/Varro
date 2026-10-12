@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.63.0] — 2026-10-11
+- Service health (RED) from traces: per-service request rate, error rate, and p50/p95/p99 latency (`GET /api/v1/otlp/services`), shown atop the Traces view.
+
 ## [v0.62.0] — 2026-10-11
 - Flows map: CDN/anycast destinations (whose IP geo is meaningless) are grouped into a dedicated "CDN / anycast" cluster instead of a bogus country; the table shows "CDN · <ASN>".
 
