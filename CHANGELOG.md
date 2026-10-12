@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.61.0] — 2026-10-11
+- Flows map: destination dots are now draggable (like the topology canvas) so same-country clusters can be spread out; positions persist across refreshes.
+
 ## [v0.60.0] — 2026-10-11
 - CI/CD webhook ingest (`POST /api/v1/cicd`): pipeline build/deploy events become first-class events and overlay as deploy markers on metric charts for deploy↔metric correlation.
 
