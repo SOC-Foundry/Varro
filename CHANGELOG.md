@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.66.0] — 2026-10-12
+- Postgres HA: a hot streaming standby (`varro-pg-2`) replicates the primary (async, ~2ms lag), pre-staged with a CA-signed cert + listening on its IP so failover is promote + repoint. Removes the last single point of failure. Runbook: docs/postgres-ha.md. (Infra + docs; no agent change.)
+
 ## [v0.65.0] — 2026-10-12
 - Deploy→regression correlation: when a CI/CD deploy is followed by a service error-rate or p95-latency regression, Varro raises a `deploy_regression` event + alert ("this deploy likely caused this").
 
