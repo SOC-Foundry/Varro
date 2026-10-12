@@ -34,6 +34,17 @@ func (s *Store) InsertLogs(ctx context.Context, orgID, endpointID string, entrie
 	return tx.Commit()
 }
 
+// LogErrorCount returns how many error-level (error/critical/alert/emergency)
+// log lines an endpoint produced since the given time. Powers log-burst alerts.
+func (s *Store) LogErrorCount(ctx context.Context, endpointID string, since int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM logs
+WHERE endpoint_id = ? AND ts >= ? AND severity IN ('error', 'critical', 'alert', 'emergency')`,
+		endpointID, since).Scan(&n)
+	return n, err
+}
+
 // LogQuery narrows a log search. Zero-value fields are ignored.
 type LogQuery struct {
 	OrgIDs     []string // nil = all orgs
