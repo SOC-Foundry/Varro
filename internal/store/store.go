@@ -125,10 +125,27 @@ CREATE TABLE IF NOT EXISTS otlp_metrics (
 	service TEXT NOT NULL DEFAULT '',
 	metric  TEXT NOT NULL,
 	ts      INTEGER NOT NULL,
-	value   REAL NOT NULL,
+	value   DOUBLE PRECISION NOT NULL,
 	attrs   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_otlp_org_ts ON otlp_metrics(org_id, ts);
+CREATE TABLE IF NOT EXISTS otlp_spans (
+	id        INTEGER PRIMARY KEY,
+	org_id    TEXT NOT NULL,
+	trace_id  TEXT NOT NULL,
+	span_id   TEXT NOT NULL,
+	parent_id TEXT NOT NULL DEFAULT '',
+	service   TEXT NOT NULL DEFAULT '',
+	name      TEXT NOT NULL DEFAULT '',
+	kind      TEXT NOT NULL DEFAULT '',
+	start_ns  INTEGER NOT NULL,
+	dur_ns    INTEGER NOT NULL DEFAULT 0,
+	status    TEXT NOT NULL DEFAULT '',
+	attrs     TEXT NOT NULL DEFAULT '',
+	ts        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_otlp_spans_org_ts ON otlp_spans(org_id, ts);
+CREATE INDEX IF NOT EXISTS idx_otlp_spans_trace ON otlp_spans(trace_id);
 CREATE TABLE IF NOT EXISTS alerts (
 	id          INTEGER PRIMARY KEY,
 	rule        TEXT NOT NULL,
@@ -295,6 +312,12 @@ CREATE INDEX IF NOT EXISTS idx_toposnap_org_ts ON topology_snapshots(org_id, ts)
 			!strings.Contains(err.Error(), "already exists") {
 			return err
 		}
+	}
+	// Postgres created otlp_metrics.value as REAL (float4) before v0.58.0, which
+	// loses precision on large counters. Widen it to double precision. PG-only:
+	// SQLite has no ALTER COLUMN TYPE and already stores REAL as float64.
+	if s.db.IsPostgres() {
+		s.db.Exec(`ALTER TABLE otlp_metrics ALTER COLUMN value TYPE DOUBLE PRECISION`)
 	}
 	// Backfill public ids for enrollment tokens minted before per-token revoke
 	// existed, so each becomes individually targetable. Collect first (the
@@ -668,6 +691,9 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 		return 0, err
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM otlp_metrics WHERE ts < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM otlp_spans WHERE ts < ?`, sampleCut); err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)

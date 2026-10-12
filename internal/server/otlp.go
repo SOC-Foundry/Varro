@@ -159,6 +159,133 @@ func (s *Server) handleOTLPMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("{}"))
 }
 
+// OTLP/HTTP JSON trace shapes — a subset of ExportTraceServiceRequest.
+type otlpSpanJSON struct {
+	TraceID           string     `json:"traceId"`
+	SpanID            string     `json:"spanId"`
+	ParentSpanID      string     `json:"parentSpanId"`
+	Name              string     `json:"name"`
+	Kind              int        `json:"kind"`
+	StartTimeUnixNano string     `json:"startTimeUnixNano"`
+	EndTimeUnixNano   string     `json:"endTimeUnixNano"`
+	Attributes        []otlpAttr `json:"attributes"`
+	Status            struct {
+		Code int `json:"code"` // 0 unset, 1 ok, 2 error
+	} `json:"status"`
+}
+
+type otlpTracesReq struct {
+	ResourceSpans []struct {
+		Resource struct {
+			Attributes []otlpAttr `json:"attributes"`
+		} `json:"resource"`
+		ScopeSpans []struct {
+			Spans []otlpSpanJSON `json:"spans"`
+		} `json:"scopeSpans"`
+	} `json:"resourceSpans"`
+}
+
+var spanKindName = map[int]string{1: "internal", 2: "server", 3: "client", 4: "producer", 5: "consumer"}
+
+// handleOTLPTraces is an OTLP/HTTP (JSON) trace receiver at /v1/traces.
+func (s *Server) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
+	org, ok := s.otlpOrg(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "json") {
+		http.Error(w, "send OTLP/HTTP JSON (set OTEL_EXPORTER_OTLP_PROTOCOL=http/json); protobuf not supported", http.StatusUnsupportedMediaType)
+		return
+	}
+	var req otlpTracesReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxOTLPBody)).Decode(&req); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var spans []model.OTLPSpan
+	for _, rs := range req.ResourceSpans {
+		service := ""
+		for _, a := range rs.Resource.Attributes {
+			if a.Key == "service.name" {
+				service = attrString(a)
+			}
+		}
+		for _, ss := range rs.ScopeSpans {
+			for _, sp := range ss.Spans {
+				start, _ := strconv.ParseInt(sp.StartTimeUnixNano, 10, 64)
+				end, _ := strconv.ParseInt(sp.EndTimeUnixNano, 10, 64)
+				dur := end - start
+				if dur < 0 {
+					dur = 0
+				}
+				status := ""
+				if sp.Status.Code == 2 {
+					status = "error"
+				} else if sp.Status.Code == 1 {
+					status = "ok"
+				}
+				var attrs []string
+				for _, a := range sp.Attributes {
+					attrs = append(attrs, a.Key+"="+attrString(a))
+				}
+				spans = append(spans, model.OTLPSpan{
+					TraceID: sp.TraceID, SpanID: sp.SpanID, ParentID: sp.ParentSpanID,
+					Service: service, Name: sp.Name, Kind: spanKindName[sp.Kind],
+					StartNs: start, DurNs: dur, Status: status,
+					Attrs: strings.Join(attrs, ","), TS: start / 1_000_000_000,
+				})
+			}
+		}
+	}
+	if err := s.store.InsertOTLPSpans(r.Context(), org, spans); err != nil {
+		s.log.Error("otlp traces ingest failed", "error", err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("{}"))
+}
+
+// handleOTLPTraceList serves recent traces (read-scoped).
+func (s *Server) handleOTLPTraceList(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	minutes := 60
+	if v, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && v > 0 && v <= 10080 {
+		minutes = v
+	}
+	since := time.Now().Add(-time.Duration(minutes) * time.Minute).Unix()
+	traces, err := s.store.OTLPTraces(r.Context(), scope, since, 200)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if traces == nil {
+		traces = []model.OTLPTraceSummary{}
+	}
+	writeJSON(w, map[string]any{"minutes": minutes, "traces": traces})
+}
+
+// handleOTLPTraceDetail serves one trace's spans (read-scoped).
+func (s *Server) handleOTLPTraceDetail(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	spans, err := s.store.OTLPTraceSpans(r.Context(), scope, r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if spans == nil {
+		spans = []model.OTLPSpan{}
+	}
+	writeJSON(w, map[string]any{"spans": spans})
+}
+
 // handleOTLPList serves the custom-metrics rollup (read-scoped).
 func (s *Server) handleOTLPList(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.requireReadScope(w, r)

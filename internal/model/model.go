@@ -508,6 +508,33 @@ type OTLPMetricSummary struct {
 	Count     int     `json:"count"`
 }
 
+// OTLPSpan is one span pushed via OTLP tracing.
+type OTLPSpan struct {
+	TraceID  string `json:"trace_id"`
+	SpanID   string `json:"span_id"`
+	ParentID string `json:"parent_id,omitempty"`
+	Service  string `json:"service"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind,omitempty"`
+	StartNs  int64  `json:"start_ns"`
+	DurNs    int64  `json:"dur_ns"`
+	Status   string `json:"status,omitempty"` // "", "ok", "error"
+	Attrs    string `json:"attrs,omitempty"`
+	TS       int64  `json:"ts"` // unix seconds (start), for windowing
+}
+
+// OTLPTraceSummary rolls one trace (all spans sharing a trace id) into a row for
+// the traces list: root operation, service, wall-clock duration, span count.
+type OTLPTraceSummary struct {
+	TraceID    string  `json:"trace_id"`
+	Service    string  `json:"service"`
+	Operation  string  `json:"operation"`
+	StartTS    int64   `json:"start_ts"`
+	DurationMs float64 `json:"duration_ms"`
+	SpanCount  int     `json:"span_count"`
+	Error      bool    `json:"error,omitempty"`
+}
+
 // SavedView is a named, persisted metric-explorer configuration (its spec is an
 // opaque JSON blob the dashboard interprets: metric, endpoints, time range).
 type SavedView struct {

@@ -33,6 +33,130 @@ func (s *Store) InsertOTLPMetrics(ctx context.Context, orgID string, pts []model
 	return tx.Commit()
 }
 
+// InsertOTLPSpans stores a batch of trace spans for one org.
+func (s *Store) InsertOTLPSpans(ctx context.Context, orgID string, spans []model.OTLPSpan) error {
+	if len(spans) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	ins, err := tx.PrepareContext(ctx, `
+INSERT INTO otlp_spans (org_id, trace_id, span_id, parent_id, service, name, kind, start_ns, dur_ns, status, attrs, ts)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer ins.Close()
+	for _, sp := range spans {
+		if sp.TraceID == "" || sp.SpanID == "" {
+			continue
+		}
+		if _, err := ins.ExecContext(ctx, orgID, sp.TraceID, sp.SpanID, sp.ParentID, sp.Service,
+			sp.Name, sp.Kind, sp.StartNs, sp.DurNs, sp.Status, sp.Attrs, sp.TS); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// OTLPTraces returns recent traces (newest first) rolled up from their spans.
+func (s *Store) OTLPTraces(ctx context.Context, orgIDs []string, since int64, limit int) ([]model.OTLPTraceSummary, error) {
+	filter, args := orgFilter("org_id", orgIDs)
+	args = append([]any{since}, args...)
+	// Bounded span fetch; group into traces in Go for dialect portability.
+	rows, err := s.db.QueryContext(ctx, `
+SELECT trace_id, parent_id, service, name, start_ns, dur_ns, status FROM otlp_spans
+WHERE ts >= ?`+filter+`
+ORDER BY start_ns DESC
+LIMIT 20000`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type acc struct {
+		sum      *model.OTLPTraceSummary
+		minStart int64
+		maxEnd   int64
+	}
+	traces := map[string]*acc{}
+	var order []string
+	for rows.Next() {
+		var traceID, parent, service, name, status string
+		var start, dur int64
+		if err := rows.Scan(&traceID, &parent, &service, &name, &start, &dur, &status); err != nil {
+			return nil, err
+		}
+		a := traces[traceID]
+		if a == nil {
+			a = &acc{sum: &model.OTLPTraceSummary{TraceID: traceID}, minStart: start, maxEnd: start + dur}
+			traces[traceID] = a
+			order = append(order, traceID)
+		}
+		a.sum.SpanCount++
+		if status == "error" {
+			a.sum.Error = true
+		}
+		if start < a.minStart {
+			a.minStart = start
+		}
+		if start+dur > a.maxEnd {
+			a.maxEnd = start + dur
+		}
+		// Root span (no parent) names the trace and its service.
+		if parent == "" {
+			a.sum.Operation = name
+			a.sum.Service = service
+		}
+		if a.sum.Service == "" {
+			a.sum.Service = service
+		}
+		if a.sum.Operation == "" {
+			a.sum.Operation = name
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]model.OTLPTraceSummary, 0, len(order))
+	for _, id := range order {
+		a := traces[id]
+		a.sum.StartTS = a.minStart / 1_000_000_000
+		a.sum.DurationMs = float64(a.maxEnd-a.minStart) / 1_000_000
+		out = append(out, *a.sum)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// OTLPTraceSpans returns one trace's spans, earliest first (for the detail view).
+func (s *Store) OTLPTraceSpans(ctx context.Context, orgIDs []string, traceID string) ([]model.OTLPSpan, error) {
+	filter, args := orgFilter("org_id", orgIDs)
+	args = append([]any{traceID}, args...)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT trace_id, span_id, parent_id, service, name, kind, start_ns, dur_ns, status, attrs
+FROM otlp_spans WHERE trace_id = ?`+filter+`
+ORDER BY start_ns`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.OTLPSpan
+	for rows.Next() {
+		var sp model.OTLPSpan
+		if err := rows.Scan(&sp.TraceID, &sp.SpanID, &sp.ParentID, &sp.Service, &sp.Name,
+			&sp.Kind, &sp.StartNs, &sp.DurNs, &sp.Status, &sp.Attrs); err != nil {
+			return nil, err
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
 // OTLPSummaries rolls up service+metric over the window (since unix seconds):
 // point count and latest value. Aggregated in Go for dialect portability.
 func (s *Store) OTLPSummaries(ctx context.Context, orgIDs []string, since int64) ([]model.OTLPMetricSummary, error) {

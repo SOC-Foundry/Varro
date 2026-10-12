@@ -49,6 +49,57 @@ func TestOTLPMetricsIngest(t *testing.T) {
 	}
 }
 
+const otlpTracesBody = `{"resourceSpans":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"gateway"}}]},
+ "scopeSpans":[{"spans":[
+  {"traceId":"abc123","spanId":"root","name":"GET /checkout","kind":2,
+   "startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000150000000","status":{"code":1}},
+  {"traceId":"abc123","spanId":"child","parentSpanId":"root","name":"db.query","kind":3,
+   "startTimeUnixNano":"1700000000020000000","endTimeUnixNano":"1700000000090000000","status":{"code":2}}
+ ]}]}]}`
+
+func TestOTLPTracesIngest(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	r := httptest.NewRequest("POST", "/v1/traces", strings.NewReader(otlpTracesBody))
+	r.Header.Set("Authorization", "Bearer master-secret")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.handleOTLPTraces(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	traces, err := st.OTLPTraces(context.Background(), nil, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("got %d traces, want 1", len(traces))
+	}
+	tr := traces[0]
+	if tr.Operation != "GET /checkout" || tr.Service != "gateway" {
+		t.Errorf("root op/service wrong: %+v", tr)
+	}
+	if tr.SpanCount != 2 {
+		t.Errorf("span count = %d, want 2", tr.SpanCount)
+	}
+	if !tr.Error {
+		t.Errorf("trace should be flagged error (child span status=error)")
+	}
+	if tr.DurationMs != 150 { // root span 0..150ms wall clock
+		t.Errorf("duration = %v ms, want 150", tr.DurationMs)
+	}
+	// Detail returns both spans, earliest first.
+	spans, err := st.OTLPTraceSpans(context.Background(), nil, "abc123")
+	if err != nil || len(spans) != 2 {
+		t.Fatalf("trace spans: n=%d err=%v", len(spans), err)
+	}
+	if spans[0].SpanID != "root" {
+		t.Errorf("spans not start-ordered: %+v", spans)
+	}
+}
+
 func TestOTLPMetricsAuthAndContentType(t *testing.T) {
 	srv, _ := newTestServer(t)
 
