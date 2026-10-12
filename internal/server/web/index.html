@@ -1415,23 +1415,29 @@ $("flowsCsv").onclick = () => downloadFlowsCsv();
 
 // buildFlowDots lays out destinations by country centroid (fanned on a ring),
 // preserving any position the user has dragged, across data refreshes.
+// CDN anchor: a fixed, non-geographic spot (lower-left, over ocean) so CDN/
+// anycast destinations don't get planted on a bogus country.
+const cdnAnchor = (w, h) => [w * 0.12, h * 0.62];
+
 function buildFlowDots(w, h) {
   const prev = new Map(flowDots.map(d => [d.dest, d]));
-  const plotted = flowsData.filter(t => t.country && COUNTRY_LL[t.country]);
+  const zoneOf = t => t.cdn ? "CDN" : t.country;
+  const plotted = flowsData.filter(t => t.cdn || (t.country && COUNTRY_LL[t.country]));
   const metric = t => (t.bytes > 0 ? t.bytes : t.count) || 1;
   flowMaxM = Math.max(1, ...plotted.map(metric));
-  const byCountry = {};
-  for (const t of plotted) (byCountry[t.country] = byCountry[t.country] || []).push(t);
+  const byZone = {};
+  for (const t of plotted) (byZone[zoneOf(t)] = byZone[zoneOf(t)] || []).push(t);
+  const anchorOf = z => z === "CDN" ? cdnAnchor(w, h)
+    : (() => { const [lat, lon] = COUNTRY_LL[z]; return [projX(lon, w), projY(lat, h)]; })();
   const dots = [];
-  for (const cc of Object.keys(byCountry)) {
-    const members = byCountry[cc].sort((a, b) => metric(b) - metric(a));
-    const [lat, lon] = COUNTRY_LL[cc];
-    const bx = projX(lon, w), by = projY(lat, h), k = members.length;
-    const ring = k > 1 ? Math.min(14 + k * 2.5, 48) : 0;
+  for (const z of Object.keys(byZone)) {
+    const members = byZone[z].sort((a, b) => metric(b) - metric(a));
+    const [bx, by] = anchorOf(z), k = members.length;
+    const ring = k > 1 ? Math.min(14 + k * 2.5, 54) : 0;
     members.forEach((t, i) => {
       const old = prev.get(t.dest), ang = (i / k) * Math.PI * 2 - Math.PI / 2;
       dots.push({
-        dest: t.dest, t,
+        dest: t.dest, t, zone: z,
         x: old ? old.x : bx + Math.cos(ang) * ring,
         y: old ? old.y : by + Math.sin(ang) * ring,
         pinned: old ? old.pinned : false,
@@ -1440,7 +1446,7 @@ function buildFlowDots(w, h) {
     });
   }
   flowDots = dots;
-  flowDotsSig = plotted.map(t => t.dest).sort().join("|");
+  flowDotsSig = plotted.map(t => t.dest + (t.cdn ? "·c" : "")).sort().join("|");
 }
 
 function showFlows(on) {
@@ -1495,9 +1501,11 @@ function renderFlowsTable() {
   if (!flowsData.length) { rows.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no external flows in this window</td></tr>`; }
   else rows.innerHTML = flowsData.map(t => {
     const mal = t.malicious ? ' <span style="color:var(--red)">⚠</span>' : "";
+    // For CDN/anycast, drop the (unreliable) country and show "CDN · <ASN>".
+    const geoDisp = t.cdn ? ("CDN · " + (((t.geo || "").split("· ")[1]) || (t.geo || "")).trim()) : (t.geo || "—");
     return `<tr>
       <td style="font-family:var(--mono)">${esc(t.dest)}${mal}</td>
-      <td style="color:var(--amber);font-size:12px">${esc(t.geo || "—")}</td>
+      <td style="color:${t.cdn ? "var(--dim)" : "var(--amber)"};font-size:12px">${esc(geoDisp)}</td>
       <td class="num" style="font-family:var(--mono)">${fmtBytes(t.bytes, "")}</td>
       <td class="num">${t.count}</td>
       <td class="num">${t.sources}</td>
@@ -1597,6 +1605,12 @@ function tickFlowMap() {
     placed.push({ x: pos[0], y: pos[1], w: wd });
     ctx.fillStyle = d.t.malicious ? "#f85149" : "#8b949e";
     ctx.fillText(txt, pos[0], pos[1]);
+  }
+  // CDN/anycast cluster label (geo de-emphasized for these)
+  if (dots.some(d => d.zone === "CDN")) {
+    const [ax, ay] = cdnAnchor(w, h);
+    ctx.fillStyle = "#6e7681"; ctx.font = "10px ui-monospace,monospace"; ctx.textAlign = "center";
+    ctx.fillText("CDN / anycast", ax, ay - 14); ctx.textAlign = "left";
   }
   // home marker
   ctx.fillStyle = "#e6edf3"; ctx.beginPath(); ctx.arc(home.x, home.y, 5, 0, 7); ctx.fill();

@@ -74,6 +74,7 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 			Sources:   len(a.srcs),
 			Geo:       geo,
 			Country:   countryOf(geo),
+			CDN:       isCDN(dn, geo),
 			Malicious: a.mal,
 		})
 	}
@@ -84,6 +85,45 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		return out[i].Count > out[j].Count
 	})
 	writeJSON(w, map[string]any{"minutes": minutes, "talkers": out})
+}
+
+// cdnASNs are well-known CDN / anycast provider AS numbers whose IP geolocation
+// is meaningless (an edge PoP, not where the service "is"). Hyperscaler compute
+// ASNs (Google/Amazon/Microsoft general) are intentionally excluded — their geo,
+// while imperfect, is at least consistent; CDN hostnames catch their CDN arms.
+var cdnASNs = map[string]bool{
+	"AS13335": true,                                                                                      // Cloudflare
+	"AS54113": true,                                                                                      // Fastly
+	"AS20940": true, "AS16625": true, "AS16702": true, "AS20189": true, "AS35994": true, "AS23454": true, // Akamai
+	"AS15133": true,                  // Edgecast / Verizon Media
+	"AS22822": true, "AS38622": true, // Limelight / Edgio
+	"AS33438": true, "AS20446": true, // StackPath / Highwinds
+	"AS19551": true, // Imperva / Incapsula
+}
+
+// isCDN reports whether a destination is a CDN/anycast endpoint whose country
+// geolocation shouldn't be trusted: a "cdn" in the hostname, a known CDN name in
+// the geo label, or a known CDN AS number.
+func isCDN(dest, geo string) bool {
+	if strings.Contains(strings.ToLower(dest), "cdn") {
+		return true
+	}
+	g := strings.ToLower(geo)
+	for _, kw := range []string{"cloudflare", "akamai", "fastly", "cloudfront", "edgecast", "edgio", "limelight", "stackpath", "incapsula", "imperva"} {
+		if strings.Contains(g, kw) {
+			return true
+		}
+	}
+	if i := strings.Index(geo, "AS"); i >= 0 {
+		as := geo[i:]
+		if sp := strings.IndexAny(as, " ·"); sp > 0 {
+			as = as[:sp]
+		}
+		if cdnASNs[as] {
+			return true
+		}
+	}
+	return false
 }
 
 // countryOf pulls the leading ISO-3166 alpha-2 code out of a geo label like

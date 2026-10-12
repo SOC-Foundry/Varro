@@ -592,6 +592,7 @@ type FlowTalker struct {
 	Sources   int    `json:"sources"`           // distinct fleet hosts talking to it
 	Geo       string `json:"geo,omitempty"`     // "US · AS15169 Google" style
 	Country   string `json:"country,omitempty"` // ISO alpha-2, for the map
+	CDN       bool   `json:"cdn,omitempty"`     // CDN/anycast dest — geo is unreliable, don't plot by country
 	Malicious bool   `json:"malicious,omitempty"`
 }
 
