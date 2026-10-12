@@ -141,6 +141,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /v1/metrics", s.handleOTLPMetrics)
 	mux.HandleFunc("POST /v1/traces", s.handleOTLPTraces)
 	mux.HandleFunc("POST /v1/logs", s.handleOTLPLogs)
+	mux.HandleFunc("POST /api/v1/cicd", s.handleCICD)
 	mux.HandleFunc("GET /api/v1/otlp/metrics", s.handleOTLPList)
 	mux.HandleFunc("GET /api/v1/otlp/traces", s.handleOTLPTraceList)
 	mux.HandleFunc("GET /api/v1/otlp/traces/{id}", s.handleOTLPTraceDetail)

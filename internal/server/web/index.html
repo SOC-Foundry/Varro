@@ -704,6 +704,19 @@ function drawChart(canvas, series, opts = {}) {
       ctx.closePath(); ctx.fillStyle = s.color + "22"; ctx.fill();
     }
   }
+  // Vertical markers (e.g. CI/CD deploys) for correlation.
+  for (const m of (opts.markers || [])) {
+    if (m.t < tMin || m.t > tMax) continue;
+    const mx = x(m.t);
+    ctx.strokeStyle = m.color || "#bc8cff"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(mx, pad.t); ctx.lineTo(mx, pad.t + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    if (m.label) {
+      ctx.save(); ctx.translate(mx + 3, pad.t + 4); ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = m.color || "#bc8cff"; ctx.font = "9px " + getComputedStyle(document.body).getPropertyValue("--mono");
+      ctx.fillText(m.label, 0, 0); ctx.restore();
+    }
+  }
 }
 
 /* ---- data loading ---- */
@@ -1834,11 +1847,24 @@ async function loadMetricSeries() {
       data: s.points.map(p => ({ t: p[0], v: p[1] })),
     }));
     const isRate = RATE_METRICS.has(metric);
-    drawChart($("metricChart"), series, { fmt: v => isRate ? fmtBytes(v, "") + "/s" : v.toFixed(v < 10 ? 1 : 0) });
+    drawChart($("metricChart"), series, { fmt: v => isRate ? fmtBytes(v, "") + "/s" : v.toFixed(v < 10 ? 1 : 0), markers: await loadDeployMarkers() });
     $("metricsLegend").innerHTML = (r.series || []).map((s, i) =>
       `<span style="color:${SERIES_COLORS[i % SERIES_COLORS.length]}">● ${esc(s.hostname)}</span>`).join("  ") ||
       `<span style="color:var(--dim)">no samples in window</span>`;
   } catch (e) { $("metricsLegend").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+
+// loadDeployMarkers pulls recent CI/CD events to overlay as deploy markers on
+// the metric chart (deploy → metric-change correlation).
+async function loadDeployMarkers() {
+  try {
+    const evs = await getJSON(orgQ("/api/v1/events?limit=200"));
+    const since = Date.now() / 1000 - metricWindow * 60;
+    return (evs || []).filter(e => e.type === "cicd").map(e => {
+      const t = new Date(e.timestamp).getTime() / 1000;
+      return { t, label: (e.message || "deploy").slice(0, 28), color: "#bc8cff" };
+    }).filter(m => m.t >= since);
+  } catch (e) { return []; }
 }
 
 async function loadSavedViews() {
