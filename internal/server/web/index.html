@@ -337,7 +337,7 @@
   <div id="flowsView" style="display:none">
     <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
       <h2>Flows &amp; talkers</h2>
-      <span class="meta" style="color:var(--dim); font-size:13px">where your fleet's traffic goes · by conntrack byte volume</span>
+      <span class="meta" style="color:var(--dim); font-size:13px">where your fleet's traffic goes · sized by volume · drag dots to rearrange</span>
       <a href="#" id="flowsBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
       <span style="flex:1"></span>
       <span id="flowsRanges" style="display:flex; gap:4px"></span>
@@ -1390,10 +1390,58 @@ const COUNTRY_LL = {
   TH:[15,101],VN:[16,108],ID:[-2,118],MY:[4,102],PH:[13,122],AU:[-25,134],NZ:[-41,174],BD:[24,90],PK:[30,70],
 };
 let flowsMode = false, flowsData = [], flowsWindow = 60, flowsAnim = null;
+let flowDots = [], flowDrag = null, flowDotsSig = "", flowMaxM = 1;
 
 $("flowsLink").onclick = e => { e.preventDefault(); closeSidebar(); showFlows(true); };
 $("flowsBack").onclick = e => { e.preventDefault(); showFlows(false); };
 $("flowsCsv").onclick = () => downloadFlowsCsv();
+
+// Draggable destination dots (persistent positions, like the topology canvas).
+(function () {
+  const c = $("flowMap");
+  const at = p => flowDots.find(d => Math.hypot(d.x - p.x, d.y - p.y) <= d.r + 5);
+  const pos = ev => { const r = c.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+  c.addEventListener("pointerdown", ev => {
+    const d = at(pos(ev));
+    if (d) { flowDrag = d; d.pinned = true; c.setPointerCapture(ev.pointerId); }
+  });
+  c.addEventListener("pointermove", ev => {
+    const p = pos(ev);
+    if (flowDrag) { flowDrag.x = p.x; flowDrag.y = p.y; }
+    else c.style.cursor = at(p) ? "grab" : "default";
+  });
+  c.addEventListener("pointerup", () => { flowDrag = null; });
+})();
+
+// buildFlowDots lays out destinations by country centroid (fanned on a ring),
+// preserving any position the user has dragged, across data refreshes.
+function buildFlowDots(w, h) {
+  const prev = new Map(flowDots.map(d => [d.dest, d]));
+  const plotted = flowsData.filter(t => t.country && COUNTRY_LL[t.country]);
+  const metric = t => (t.bytes > 0 ? t.bytes : t.count) || 1;
+  flowMaxM = Math.max(1, ...plotted.map(metric));
+  const byCountry = {};
+  for (const t of plotted) (byCountry[t.country] = byCountry[t.country] || []).push(t);
+  const dots = [];
+  for (const cc of Object.keys(byCountry)) {
+    const members = byCountry[cc].sort((a, b) => metric(b) - metric(a));
+    const [lat, lon] = COUNTRY_LL[cc];
+    const bx = projX(lon, w), by = projY(lat, h), k = members.length;
+    const ring = k > 1 ? Math.min(14 + k * 2.5, 48) : 0;
+    members.forEach((t, i) => {
+      const old = prev.get(t.dest), ang = (i / k) * Math.PI * 2 - Math.PI / 2;
+      dots.push({
+        dest: t.dest, t,
+        x: old ? old.x : bx + Math.cos(ang) * ring,
+        y: old ? old.y : by + Math.sin(ang) * ring,
+        pinned: old ? old.pinned : false,
+        r: 3 + 9 * Math.sqrt(metric(t) / flowMaxM), m: metric(t),
+      });
+    });
+  }
+  flowDots = dots;
+  flowDotsSig = plotted.map(t => t.dest).sort().join("|");
+}
 
 function showFlows(on) {
   flowsMode = on;
@@ -1500,28 +1548,11 @@ function tickFlowMap() {
   // fleet origin (abstract anchor, bottom-centre)
   const home = { x: w * 0.5, y: h * 0.9 };
 
-  // Destinations with a known country centroid, fanned out on a per-country
-  // ring so same-country points don't stack into an unreadable smear. Size and
-  // flow volume use bytes, falling back to connection count when conntrack byte
-  // accounting isn't available (so dots aren't all minimum-size).
-  const plotted = flowsData.filter(t => t.country && COUNTRY_LL[t.country]);
-  const metric = t => (t.bytes > 0 ? t.bytes : t.count) || 1;
-  const maxM = Math.max(1, ...plotted.map(metric));
-  const byCountry = {};
-  for (const t of plotted) (byCountry[t.country] = byCountry[t.country] || []).push(t);
-  const dots = [];
-  for (const cc of Object.keys(byCountry)) {
-    const members = byCountry[cc].sort((a, b) => metric(b) - metric(a));
-    const [lat, lon] = COUNTRY_LL[cc];
-    const bx = projX(lon, w), by = projY(lat, h);
-    const k = members.length;
-    const ring = k > 1 ? Math.min(14 + k * 2.5, 48) : 0;
-    members.forEach((t, i) => {
-      const ang = (i / k) * Math.PI * 2 - Math.PI / 2;
-      dots.push({ t, x: bx + Math.cos(ang) * ring, y: by + Math.sin(ang) * ring,
-        r: 3 + 9 * Math.sqrt(metric(t) / maxM), m: metric(t) });
-    });
-  }
+  // Destinations by country centroid (fanned on a ring), with persistent,
+  // user-draggable positions. Rebuild only when the destination set changes.
+  const sig = flowsData.filter(t => t.country && COUNTRY_LL[t.country]).map(t => t.dest).sort().join("|");
+  if (sig !== flowDotsSig || !flowDots.length) buildFlowDots(w, h);
+  const dots = flowDots, maxM = flowMaxM;
 
   // arcs + animated particles (density scales with volume share)
   const now = performance.now() / 1000;
