@@ -155,6 +155,9 @@
     <a href="#" id="metricsLink" style="color:var(--accent); font-size:13px">📈 Metric explorer</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="otlpLink" style="color:var(--accent); font-size:13px">🛰 Custom metrics</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="downloadLink" style="color:var(--accent); font-size:13px">⬇ Download agent</a>
   </div>
   <div id="adminbar" style="display:none; padding:8px 16px; border-top:1px solid var(--border)">
@@ -442,6 +445,30 @@
     <div id="metricsLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:8px"></div>
   </div>
 
+  <div id="otlpView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Custom metrics</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">app &amp; API metrics pushed via OpenTelemetry (OTLP)</span>
+      <a href="#" id="otlpBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <span id="otlpRanges" style="display:flex; gap:4px"></span>
+    </header>
+    <div id="otlpLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <div class="card" style="overflow-x:auto">
+      <table style="width:100%; min-width:560px">
+        <thead><tr><th>Service</th><th>Metric</th><th class="num">Latest</th><th class="num">Points</th><th>Last seen</th></tr></thead>
+        <tbody id="otlpRows"></tbody>
+      </table>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h3>Send metrics here</h3>
+      <div style="font-size:12.5px; color:var(--dim); line-height:1.7">
+        Point any OpenTelemetry exporter at this collector over OTLP/HTTP JSON:
+        <pre id="otlpHint" style="background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:10px; overflow-x:auto; font-size:12px; color:var(--text)"></pre>
+      </div>
+    </div>
+  </div>
+
   <div id="adminView" style="display:none">
     <header style="margin-bottom:14px">
       <h2>Administration</h2>
@@ -678,7 +705,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -1006,6 +1033,7 @@ function showAdmin(on) {
   if (on && logsMode) { hideLogs(); }
   if (on && priorityMode) { hidePriority(); }
   if (on && metricsMode) { hideMetrics(); }
+  if (on && otlpMode) { hideOtlp(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1127,6 +1155,7 @@ function showDownload(on) {
   if (on && logsMode) { hideLogs(); }
   if (on && priorityMode) { hidePriority(); }
   if (on && metricsMode) { hideMetrics(); }
+  if (on && otlpMode) { hideOtlp(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1154,6 +1183,7 @@ function showReport(on) {
     if (logsMode) hideLogs();
     if (priorityMode) hidePriority();
     if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1338,6 +1368,7 @@ function showFlows(on) {
     if (logsMode) hideLogs();
     if (priorityMode) hidePriority();
     if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1537,6 +1568,7 @@ function showLogs(on) {
     if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
     if (priorityMode) hidePriority();
     if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1637,6 +1669,7 @@ function showPriority(on) {
     if (logsMode) hideLogs();
     if (priorityMode) hidePriority();
     if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
     priorityMode = true;
     $("priorityView").style.display = "block";
     $("detail").style.display = "none";
@@ -1715,6 +1748,7 @@ function showMetrics(on) {
     if (logsMode) hideLogs();
     if (priorityMode) hidePriority();
     if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
     metricsMode = true;
     $("metricsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1827,6 +1861,78 @@ async function deleteCurrentView() {
   } catch (e) { oops(e); }
 }
 
+/* ---- custom metrics (OTLP) view ---- */
+let otlpMode = false, otlpWindow = 60, otlpData = [];
+$("otlpLink").onclick = e => { e.preventDefault(); closeSidebar(); showOtlp(true); };
+$("otlpBack").onclick = e => { e.preventDefault(); showOtlp(false); };
+function hideOtlp() { otlpMode = false; $("otlpView").style.display = "none"; }
+
+function showOtlp(on) {
+  otlpMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
+    otlpMode = true;
+    $("otlpView").style.display = "block";
+    $("detail").style.display = "none";
+    setupOtlpRanges();
+    renderOtlpHint();
+    loadOtlp();
+  } else { hideOtlp(); refreshEndpoints(); }
+}
+
+function setupOtlpRanges() {
+  if (setupOtlpRanges.done) return;
+  const box = $("otlpRanges");
+  box.innerHTML = "";
+  for (const [label, m] of [["1h", 60], ["24h", 1440], ["7d", 10080]]) {
+    const b = document.createElement("button");
+    b.className = "abtn"; b.textContent = label;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (m === otlpWindow ? ";color:var(--accent);border-color:var(--accent)" : "");
+    b.onclick = () => { otlpWindow = m; setupOtlpRanges.done = false; setupOtlpRanges(); loadOtlp(); };
+    box.appendChild(b);
+  }
+  setupOtlpRanges.done = true;
+}
+
+function renderOtlpHint() {
+  $("otlpHint").textContent =
+    `export OTEL_EXPORTER_OTLP_ENDPOINT=${location.origin}\n` +
+    `export OTEL_EXPORTER_OTLP_PROTOCOL=http/json\n` +
+    `export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <org-enrollment-token>"\n` +
+    `# your app's OTel exporter then POSTs metrics to ${location.origin}/v1/metrics`;
+}
+
+async function loadOtlp() {
+  try {
+    const r = await getJSON(orgQ("/api/v1/otlp/metrics?minutes=" + otlpWindow));
+    otlpData = r.metrics || [];
+    renderOtlp();
+  } catch (e) { $("otlpRows").innerHTML = `<tr><td colspan="5" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderOtlp() {
+  const fmt = v => Number.isInteger(v) ? v.toLocaleString() : (+v).toFixed(2);
+  if (!otlpData.length) {
+    $("otlpRows").innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no custom metrics yet — push some via OTLP (see below)</td></tr>`;
+  } else {
+    $("otlpRows").innerHTML = otlpData.map(m => `<tr>
+      <td style="font-family:var(--mono)">${esc(m.service || "—")}</td>
+      <td style="font-family:var(--mono)">${esc(m.metric)}</td>
+      <td class="num" style="font-family:var(--mono)">${fmt(m.last_value)}</td>
+      <td class="num">${m.count}</td>
+      <td style="color:var(--dim); font-size:12px">${new Date(m.last_ts * 1000).toLocaleString()}</td></tr>`).join("");
+  }
+  $("otlpLegend").innerHTML = `${otlpData.length} metric stream${otlpData.length === 1 ? "" : "s"} · ${new Set(otlpData.map(m => m.service)).size} service(s)`;
+}
+
 /* ---- topology view ---- */
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
@@ -1883,6 +1989,7 @@ function showTopo(on) {
   if (on && logsMode) { hideLogs(); }
   if (on && priorityMode) { hidePriority(); }
   if (on && metricsMode) { hideMetrics(); }
+  if (on && otlpMode) { hideOtlp(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

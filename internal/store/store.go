@@ -119,6 +119,16 @@ CREATE TABLE IF NOT EXISTS saved_views (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_views_owner ON saved_views(owner);
+CREATE TABLE IF NOT EXISTS otlp_metrics (
+	id      INTEGER PRIMARY KEY,
+	org_id  TEXT NOT NULL,
+	service TEXT NOT NULL DEFAULT '',
+	metric  TEXT NOT NULL,
+	ts      INTEGER NOT NULL,
+	value   REAL NOT NULL,
+	attrs   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_otlp_org_ts ON otlp_metrics(org_id, ts);
 CREATE TABLE IF NOT EXISTS alerts (
 	id          INTEGER PRIMARY KEY,
 	rule        TEXT NOT NULL,
@@ -655,6 +665,9 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 	}
 	// Logs are high-volume; keep them on the short (sample) retention.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM logs WHERE ts < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM otlp_metrics WHERE ts < ?`, sampleCut); err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)

@@ -489,6 +489,25 @@ type ComplianceReport struct {
 	FailedServices int            `json:"failed_services"` // endpoints with a failed service
 }
 
+// OTLPMetric is one data point pushed via OTLP (OpenTelemetry) by an app.
+type OTLPMetric struct {
+	Service string  `json:"service"`
+	Metric  string  `json:"metric"`
+	TS      int64   `json:"ts"` // unix seconds
+	Value   float64 `json:"value"`
+	Attrs   string  `json:"attrs,omitempty"` // flattened point attributes "k=v,k=v"
+}
+
+// OTLPMetricSummary rolls up one service+metric over a window for the custom-
+// metrics view: how many points, and the latest value.
+type OTLPMetricSummary struct {
+	Service   string  `json:"service"`
+	Metric    string  `json:"metric"`
+	LastValue float64 `json:"last_value"`
+	LastTS    int64   `json:"last_ts"`
+	Count     int     `json:"count"`
+}
+
 // SavedView is a named, persisted metric-explorer configuration (its spec is an
 // opaque JSON blob the dashboard interprets: metric, endpoints, time range).
 type SavedView struct {
