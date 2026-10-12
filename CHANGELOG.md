@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.65.0] — 2026-10-12
+- Deploy→regression correlation: when a CI/CD deploy is followed by a service error-rate or p95-latency regression, Varro raises a `deploy_regression` event + alert ("this deploy likely caused this").
+
 ## [v0.64.0] — 2026-10-11
 - Alerting on telemetry: service SLO alerts (error rate, p95 latency from traces) and per-endpoint log-error-burst alerts, alongside the existing host-metric alerts.
 
