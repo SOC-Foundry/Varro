@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.60.0] — 2026-10-11
+- CI/CD webhook ingest (`POST /api/v1/cicd`): pipeline build/deploy events become first-class events and overlay as deploy markers on metric charts for deploy↔metric correlation.
+
 ## [v0.59.0] — 2026-10-11
 - OTLP logs ingest (`POST /v1/logs`): app logs pushed via OpenTelemetry land in the existing Logs view alongside journald. Completes OTLP metrics + traces + logs.
 
