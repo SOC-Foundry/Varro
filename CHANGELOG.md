@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.64.0] — 2026-10-11
+- Alerting on telemetry: service SLO alerts (error rate, p95 latency from traces) and per-endpoint log-error-burst alerts, alongside the existing host-metric alerts.
+
 ## [v0.63.0] — 2026-10-11
 - Service health (RED) from traces: per-service request rate, error rate, and p50/p95/p99 latency (`GET /api/v1/otlp/services`), shown atop the Traces view.
 
