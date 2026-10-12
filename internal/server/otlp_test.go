@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/soc-foundry/varro/internal/store"
 )
 
 const otlpBody = `{"resourceMetrics":[{"resource":{"attributes":[
@@ -97,6 +99,53 @@ func TestOTLPTracesIngest(t *testing.T) {
 	}
 	if spans[0].SpanID != "root" {
 		t.Errorf("spans not start-ordered: %+v", spans)
+	}
+}
+
+const otlpLogsBody = `{"resourceLogs":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"payments"}}]},
+ "scopeLogs":[{"scope":{"name":"charge-handler"},"logRecords":[
+  {"timeUnixNano":"1760000000000000000","severityText":"ERROR","body":{"stringValue":"card declined"}},
+  {"severityNumber":9,"body":{"stringValue":"charge ok"}}
+ ]}]}]}`
+
+func TestOTLPLogsIngest(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	r := httptest.NewRequest("POST", "/v1/logs", strings.NewReader(otlpLogsBody))
+	r.Header.Set("Authorization", "Bearer master-secret")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.handleOTLPLogs(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	// OTLP logs land in the shared logs pillar under endpoint "otlp/<service>".
+	logs, err := st.QueryLogs(context.Background(), store.LogQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("got %d log lines, want 2", len(logs))
+	}
+	var sawErr, sawInfo bool
+	for _, l := range logs {
+		if l.EndpointID != "otlp/payments" {
+			t.Errorf("endpoint = %q, want otlp/payments", l.EndpointID)
+		}
+		if l.Source != "charge-handler" {
+			t.Errorf("source = %q, want charge-handler", l.Source)
+		}
+		if l.Message == "card declined" && l.Severity == "error" {
+			sawErr = true // severityText ERROR -> error
+		}
+		if l.Message == "charge ok" && l.Severity == "info" {
+			sawInfo = true // severityNumber 9 -> info
+		}
+	}
+	if !sawErr || !sawInfo {
+		t.Errorf("severity mapping wrong: sawErr=%v sawInfo=%v", sawErr, sawInfo)
 	}
 }
 

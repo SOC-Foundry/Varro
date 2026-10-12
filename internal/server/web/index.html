@@ -1936,7 +1936,10 @@ function renderOtlpHint() {
     `export OTEL_EXPORTER_OTLP_ENDPOINT=${location.origin}\n` +
     `export OTEL_EXPORTER_OTLP_PROTOCOL=http/json\n` +
     `export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <org-enrollment-token>"\n` +
-    `# your app's OTel exporter then POSTs metrics to ${location.origin}/v1/metrics`;
+    `# your app's OTel exporter then POSTs to:\n` +
+    `#   ${location.origin}/v1/metrics   → Custom metrics\n` +
+    `#   ${location.origin}/v1/traces    → Traces\n` +
+    `#   ${location.origin}/v1/logs      → Logs (app logs join journald in the Logs view)`;
 }
 
 async function loadOtlp() {

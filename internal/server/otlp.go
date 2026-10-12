@@ -30,14 +30,16 @@ func (s *Server) otlpOrg(r *http.Request) (string, bool) {
 
 // OTLP/HTTP JSON shapes — a minimal subset of ExportMetricsServiceRequest
 // (gauge + sum numeric data points). https://opentelemetry.io/docs/specs/otlp/
+type otlpValue struct {
+	StringValue *string  `json:"stringValue"`
+	IntValue    *string  `json:"intValue"` // int64 serialized as string
+	DoubleValue *float64 `json:"doubleValue"`
+	BoolValue   *bool    `json:"boolValue"`
+}
+
 type otlpAttr struct {
-	Key   string `json:"key"`
-	Value struct {
-		StringValue *string  `json:"stringValue"`
-		IntValue    *string  `json:"intValue"` // int64 serialized as string
-		DoubleValue *float64 `json:"doubleValue"`
-		BoolValue   *bool    `json:"boolValue"`
-	} `json:"value"`
+	Key   string    `json:"key"`
+	Value otlpValue `json:"value"`
 }
 
 type otlpPoint struct {
@@ -66,19 +68,21 @@ type otlpMetricsReq struct {
 	} `json:"resourceMetrics"`
 }
 
-func attrString(a otlpAttr) string {
+func valueString(v otlpValue) string {
 	switch {
-	case a.Value.StringValue != nil:
-		return *a.Value.StringValue
-	case a.Value.IntValue != nil:
-		return *a.Value.IntValue
-	case a.Value.DoubleValue != nil:
-		return strconv.FormatFloat(*a.Value.DoubleValue, 'g', -1, 64)
-	case a.Value.BoolValue != nil:
-		return strconv.FormatBool(*a.Value.BoolValue)
+	case v.StringValue != nil:
+		return *v.StringValue
+	case v.IntValue != nil:
+		return *v.IntValue
+	case v.DoubleValue != nil:
+		return strconv.FormatFloat(*v.DoubleValue, 'g', -1, 64)
+	case v.BoolValue != nil:
+		return strconv.FormatBool(*v.BoolValue)
 	}
 	return ""
 }
+
+func attrString(a otlpAttr) string { return valueString(a.Value) }
 
 func pointValue(p otlpPoint) (float64, bool) {
 	if p.AsDouble != nil {
@@ -284,6 +288,120 @@ func (s *Server) handleOTLPTraceDetail(w http.ResponseWriter, r *http.Request) {
 		spans = []model.OTLPSpan{}
 	}
 	writeJSON(w, map[string]any{"spans": spans})
+}
+
+// OTLP/HTTP JSON log shapes — a subset of ExportLogsServiceRequest.
+type otlpLogsReq struct {
+	ResourceLogs []struct {
+		Resource struct {
+			Attributes []otlpAttr `json:"attributes"`
+		} `json:"resource"`
+		ScopeLogs []struct {
+			Scope struct {
+				Name string `json:"name"`
+			} `json:"scope"`
+			LogRecords []struct {
+				TimeUnixNano   string    `json:"timeUnixNano"`
+				SeverityNumber int       `json:"severityNumber"`
+				SeverityText   string    `json:"severityText"`
+				Body           otlpValue `json:"body"`
+			} `json:"logRecords"`
+		} `json:"scopeLogs"`
+	} `json:"resourceLogs"`
+}
+
+// otlpLogSeverity normalizes OTLP severity (text or 1-24 number) to the names
+// the logs pillar uses, so OTLP app logs filter alongside journald logs.
+func otlpLogSeverity(text string, num int) string {
+	switch strings.ToUpper(text) {
+	case "FATAL", "CRITICAL":
+		return "critical"
+	case "ERROR", "ERR":
+		return "error"
+	case "WARN", "WARNING":
+		return "warning"
+	case "NOTICE":
+		return "notice"
+	case "INFO":
+		return "info"
+	case "DEBUG", "TRACE":
+		return "debug"
+	}
+	switch {
+	case num >= 21:
+		return "critical"
+	case num >= 17:
+		return "error"
+	case num >= 13:
+		return "warning"
+	case num >= 9:
+		return "info"
+	case num >= 1:
+		return "debug"
+	}
+	return ""
+}
+
+// handleOTLPLogs is an OTLP/HTTP (JSON) log receiver at /v1/logs. App logs land
+// in the same logs pillar as journald (endpoint id "otlp/<service>"), so they
+// search/filter/tail in the existing Logs view.
+func (s *Server) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
+	org, ok := s.otlpOrg(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "json") {
+		http.Error(w, "send OTLP/HTTP JSON (set OTEL_EXPORTER_OTLP_PROTOCOL=http/json); protobuf not supported", http.StatusUnsupportedMediaType)
+		return
+	}
+	var req otlpLogsReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxOTLPBody)).Decode(&req); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Group by pseudo-endpoint (otlp/<service>) so one InsertLogs call per source.
+	byEP := map[string][]model.LogEntry{}
+	for _, rl := range req.ResourceLogs {
+		service := "unknown"
+		for _, a := range rl.Resource.Attributes {
+			if a.Key == "service.name" {
+				if v := attrString(a); v != "" {
+					service = v
+				}
+			}
+		}
+		ep := "otlp/" + service
+		for _, sl := range rl.ScopeLogs {
+			for _, lr := range sl.LogRecords {
+				msg := valueString(lr.Body)
+				if msg == "" {
+					continue
+				}
+				ts := time.Now().Unix()
+				if lr.TimeUnixNano != "" {
+					if ns, err := strconv.ParseInt(lr.TimeUnixNano, 10, 64); err == nil && ns > 0 {
+						ts = ns / 1_000_000_000
+					}
+				}
+				byEP[ep] = append(byEP[ep], model.LogEntry{
+					TS:       ts,
+					Severity: otlpLogSeverity(lr.SeverityText, lr.SeverityNumber),
+					Source:   sl.Scope.Name,
+					Message:  msg,
+				})
+			}
+		}
+	}
+	for ep, entries := range byEP {
+		if err := s.store.InsertLogs(r.Context(), org, ep, entries); err != nil {
+			s.log.Error("otlp logs ingest failed", "error", err)
+			http.Error(w, "storage error", http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("{}"))
 }
 
 // handleOTLPList serves the custom-metrics rollup (read-scoped).
