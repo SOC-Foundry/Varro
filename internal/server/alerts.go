@@ -69,8 +69,11 @@ func LoadRules(path string) ([]model.AlertRule, error) {
 func (s *Server) alertLoop(ctx context.Context) {
 	rules := time.NewTicker(ruleEvalEvery)
 	anomalies := time.NewTicker(anomalyEvalEvery)
+	deploys := time.NewTicker(2 * time.Minute)
 	defer rules.Stop()
 	defer anomalies.Stop()
+	defer deploys.Stop()
+	deploySeen := map[int64]bool{} // CI deploy event ids already correlated (this process)
 	for {
 		select {
 		case <-ctx.Done():
@@ -84,6 +87,10 @@ func (s *Server) alertLoop(ctx context.Context) {
 		case <-anomalies.C:
 			if s.isLeader() {
 				s.evaluateAnomalies(ctx)
+			}
+		case <-deploys.C:
+			if s.isLeader() {
+				s.deployWatch(ctx, deploySeen)
 			}
 		}
 	}

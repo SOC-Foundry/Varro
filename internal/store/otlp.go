@@ -138,11 +138,17 @@ LIMIT 20000`, args...)
 // OTLPServiceHealth computes per-service RED metrics (request rate, error rate,
 // latency percentiles) from root spans in the window. Aggregated in Go.
 func (s *Store) OTLPServiceHealth(ctx context.Context, orgIDs []string, since int64, minutes int) ([]model.ServiceHealth, error) {
+	return s.OTLPServiceHealthRange(ctx, orgIDs, since, 1<<62, minutes)
+}
+
+// OTLPServiceHealthRange is OTLPServiceHealth bounded to spans in [from, to) —
+// used by deploy-regression correlation to compare before/after windows.
+func (s *Store) OTLPServiceHealthRange(ctx context.Context, orgIDs []string, from, to int64, minutes int) ([]model.ServiceHealth, error) {
 	filter, args := orgFilter("org_id", orgIDs)
-	args = append([]any{since}, args...)
+	args = append([]any{from, to}, args...)
 	rows, err := s.db.QueryContext(ctx, `
 SELECT service, dur_ns, status FROM otlp_spans
-WHERE parent_id = '' AND ts >= ?`+filter+`
+WHERE parent_id = '' AND ts >= ? AND ts < ?`+filter+`
 LIMIT 100000`, args...)
 	if err != nil {
 		return nil, err

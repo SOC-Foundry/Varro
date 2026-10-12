@@ -185,6 +185,7 @@ const (
 	EventDomainThreatMatch = "domain_threat_match" // connection to a known-malicious domain
 	EventDomainNew         = "domain_new"          // first-seen external domain for this org
 	EventCICD              = "cicd"                // CI/CD pipeline event (build/deploy/release) via webhook
+	EventDeployRegression  = "deploy_regression"   // a deploy correlated with a service error/latency regression
 )
 
 // Response action types. This is an exhaustive allowlist — the agent executes
