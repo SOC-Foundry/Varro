@@ -524,6 +524,19 @@ type OTLPSpan struct {
 	TS       int64  `json:"ts"` // unix seconds (start), for windowing
 }
 
+// ServiceHealth is the RED rollup for one service over a window, computed from
+// its root spans (parent-less spans = top-level requests).
+type ServiceHealth struct {
+	Service   string  `json:"service"`
+	Requests  int     `json:"requests"`
+	Errors    int     `json:"errors"`
+	ErrorRate float64 `json:"error_rate"` // 0..1
+	ReqPerMin float64 `json:"req_per_min"`
+	P50Ms     float64 `json:"p50_ms"`
+	P95Ms     float64 `json:"p95_ms"`
+	P99Ms     float64 `json:"p99_ms"`
+}
+
 // OTLPTraceSummary rolls one trace (all spans sharing a trace id) into a row for
 // the traces list: root operation, service, wall-clock duration, span count.
 type OTLPTraceSummary struct {

@@ -481,6 +481,14 @@
       <span id="tracesRanges" style="display:flex; gap:4px"></span>
     </header>
     <div id="tracesLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <h3 style="font-size:13px; margin:4px 0 6px">Service health <span style="color:var(--dim); font-weight:400">· RED from traces</span></h3>
+    <div class="card" style="overflow-x:auto; margin-bottom:14px">
+      <table style="width:100%; min-width:560px">
+        <thead><tr><th>Service</th><th class="num">req/min</th><th class="num">error %</th><th class="num">p50</th><th class="num">p95</th><th class="num">p99</th></tr></thead>
+        <tbody id="svcRows"></tbody>
+      </table>
+    </div>
+    <h3 style="font-size:13px; margin:4px 0 6px">Recent traces</h3>
     <div class="card" style="overflow-x:auto">
       <table style="width:100%; min-width:640px">
         <thead><tr><th>Time</th><th>Service</th><th>Operation</th><th class="num">Duration</th><th class="num">Spans</th><th>Status</th></tr></thead>
@@ -2084,6 +2092,28 @@ async function loadTraces() {
     tracesData = r.traces || [];
     renderTraces();
   } catch (e) { $("tracesRows").innerHTML = `<tr><td colspan="6" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+  try {
+    const r = await getJSON(orgQ("/api/v1/otlp/services?minutes=" + tracesWindow));
+    renderServiceHealth(r.services || []);
+  } catch (e) { $("svcRows").innerHTML = `<tr><td colspan="6" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderServiceHealth(svcs) {
+  if (!svcs.length) { $("svcRows").innerHTML = `<tr><td colspan="6" style="color:var(--dim)">no traced services in this window</td></tr>`; return; }
+  const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + "s" : v.toFixed(0) + "ms";
+  $("svcRows").innerHTML = svcs.map(s => {
+    const er = s.error_rate * 100;
+    const erColor = er >= 5 ? "var(--red)" : er >= 1 ? "var(--amber)" : "var(--green)";
+    const p95Color = s.p95_ms >= 1000 ? "var(--red)" : s.p95_ms >= 300 ? "var(--amber)" : "var(--dim)";
+    return `<tr>
+      <td style="font-family:var(--mono)">${esc(s.service || "—")}</td>
+      <td class="num" style="font-family:var(--mono)">${s.req_per_min.toFixed(1)}</td>
+      <td class="num" style="color:${erColor}">${er.toFixed(1)}%</td>
+      <td class="num" style="font-family:var(--mono); color:var(--dim)">${ms(s.p50_ms)}</td>
+      <td class="num" style="font-family:var(--mono); color:${p95Color}">${ms(s.p95_ms)}</td>
+      <td class="num" style="font-family:var(--mono); color:var(--dim)">${ms(s.p99_ms)}</td>
+    </tr>`;
+  }).join("");
 }
 
 function renderTraces() {

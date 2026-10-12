@@ -273,6 +273,28 @@ func (s *Server) handleOTLPTraceList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"minutes": minutes, "traces": traces})
 }
 
+// handleOTLPServices serves per-service RED health from traces (read-scoped).
+func (s *Server) handleOTLPServices(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	minutes := 60
+	if v, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && v > 0 && v <= 10080 {
+		minutes = v
+	}
+	since := time.Now().Add(-time.Duration(minutes) * time.Minute).Unix()
+	svcs, err := s.store.OTLPServiceHealth(r.Context(), scope, since, minutes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if svcs == nil {
+		svcs = []model.ServiceHealth{}
+	}
+	writeJSON(w, map[string]any{"minutes": minutes, "services": svcs})
+}
+
 // handleOTLPTraceDetail serves one trace's spans (read-scoped).
 func (s *Server) handleOTLPTraceDetail(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.requireReadScope(w, r)

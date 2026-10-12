@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"math"
+	"sort"
 
 	"github.com/soc-foundry/varro/internal/model"
 )
@@ -131,6 +133,86 @@ LIMIT 20000`, args...)
 		}
 	}
 	return out, nil
+}
+
+// OTLPServiceHealth computes per-service RED metrics (request rate, error rate,
+// latency percentiles) from root spans in the window. Aggregated in Go.
+func (s *Store) OTLPServiceHealth(ctx context.Context, orgIDs []string, since int64, minutes int) ([]model.ServiceHealth, error) {
+	filter, args := orgFilter("org_id", orgIDs)
+	args = append([]any{since}, args...)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT service, dur_ns, status FROM otlp_spans
+WHERE parent_id = '' AND ts >= ?`+filter+`
+LIMIT 100000`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type acc struct {
+		durs   []float64 // ms
+		errors int
+	}
+	svc := map[string]*acc{}
+	var order []string
+	for rows.Next() {
+		var service, status string
+		var dur int64
+		if err := rows.Scan(&service, &dur, &status); err != nil {
+			return nil, err
+		}
+		a := svc[service]
+		if a == nil {
+			a = &acc{}
+			svc[service] = a
+			order = append(order, service)
+		}
+		a.durs = append(a.durs, float64(dur)/1e6)
+		if status == "error" {
+			a.errors++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if minutes < 1 {
+		minutes = 1
+	}
+	out := make([]model.ServiceHealth, 0, len(order))
+	for _, name := range order {
+		a := svc[name]
+		sort.Float64s(a.durs)
+		n := len(a.durs)
+		out = append(out, model.ServiceHealth{
+			Service:   name,
+			Requests:  n,
+			Errors:    a.errors,
+			ErrorRate: float64(a.errors) / float64(n),
+			ReqPerMin: float64(n) / float64(minutes),
+			P50Ms:     pctl(a.durs, 0.50),
+			P95Ms:     pctl(a.durs, 0.95),
+			P99Ms:     pctl(a.durs, 0.99),
+		})
+	}
+	// Busiest services first.
+	sort.Slice(out, func(i, j int) bool { return out[i].Requests > out[j].Requests })
+	return out, nil
+}
+
+// pctl returns the q-quantile (0..1) of a pre-sorted slice using the nearest-
+// rank method (ceil(q*n)), so high percentiles approach the max even for small n.
+func pctl(sorted []float64, q float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	i := int(math.Ceil(q*float64(n))) - 1
+	if i < 0 {
+		i = 0
+	}
+	if i >= n {
+		i = n - 1
+	}
+	return sorted[i]
 }
 
 // OTLPTraceSpans returns one trace's spans, earliest first (for the detail view).
