@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.58.0] — 2026-10-11
+- OTLP traces ingest (`POST /v1/traces`) with a Traces view + per-trace span waterfall. Plus a fix: OTLP metric values now store at double precision (Postgres REAL was single-precision, losing precision on large counters).
+
 ## [v0.57.0] — 2026-10-11
 - OTLP/HTTP metrics ingest: apps push custom app/API metrics via OpenTelemetry to `POST /v1/metrics` (JSON), viewable in a new Custom metrics view. Varro's first application/API telemetry path.
 
