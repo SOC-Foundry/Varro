@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.57.0] — 2026-10-11
+- OTLP/HTTP metrics ingest: apps push custom app/API metrics via OpenTelemetry to `POST /v1/metrics` (JSON), viewable in a new Custom metrics view. Varro's first application/API telemetry path.
+
 ## [v0.56.0] — 2026-10-11
 - Metric explorer: compare any metric (CPU, memory, disk, network, I/O, temp) across multiple hosts over a time range (`GET /api/v1/metrics/series`), plus named saved views (per user).
 
