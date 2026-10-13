@@ -20,7 +20,8 @@ SOC Foundry, GCP project **`varro-510502`**, zone `us-central1-a`. Operate it as
 |------|------|-------------|
 | `varro-collector` (e2-micro) | collector + Caddy (TLS) + a self-monitoring agent. Runs as a systemd **DynamicUser**. | `10.128.0.2` |
 | `varro-pg` (e2-small) | PostgreSQL 15 (the production datastore) | `10.128.0.10` |
-| `varro-pg-2` (e2-small) | PostgreSQL 15 hot standby (async streaming replica; failover-ready). See [docs/postgres-ha.md](docs/postgres-ha.md). | `10.128.0.12` |
+| `varro-pg-2` (e2-small) | PostgreSQL 15 **managed secondary** under pg_auto_failover. | `10.128.0.12` |
+| `varro-pg-mon` (e2-small) | pg_auto_failover **monitor** (HA arbiter; auto-promotes on primary failure). See [docs/postgres-autofailover.md](docs/postgres-autofailover.md). | `10.128.0.19` |
 
 - Public URL: **https://varro.socfoundry.com** (Caddy terminates TLS → collector
   on `127.0.0.1:9477`). DNS is a Cloudflare A record (DNS-only).

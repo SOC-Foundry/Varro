@@ -1,8 +1,36 @@
 # Postgres automatic failover (pg_auto_failover)
 
-Status: **mechanics VALIDATED on throwaway test VMs (2026-10-13); prod cutover
-pending a maintenance window.** Prod (`varro-pg` / `varro-pg-2`) is NOT yet
-touched. This extends the existing manual-failover HA (see
+Status: **LIVE IN PROD (2026-10-13).** Automatic failover is active: monitor
+`varro-pg-mon` (10.128.0.19) + `varro-pg` (primary) + `varro-pg-2` (secondary),
+collectors on a multi-host DSN that follows the primary. Supersedes the manual
+failover in [postgres-ha.md](postgres-ha.md). A controlled `pg_autoctl perform
+failover` drill during cutover flipped primary→secondary and back with collectors
+riding it automatically (health 200 throughout, 0 DB errors, writes followed the
+promoted node).
+
+## Live topology
+
+| Role | Node | IP |
+|------|------|-----|
+| Monitor | `varro-pg-mon` | 10.128.0.19 (no external IP) |
+| Primary (node_1) | `varro-pg` | 10.128.0.10 |
+| Secondary (node_2) | `varro-pg-2` | 10.128.0.12 |
+
+- All three run pg_autoctl **2.0** from Debian bookworm main (NOT PGDG — prod has
+  no PGDG repo; the monitor was deliberately built on 2.0 to match).
+- Collector DSN (both collectors, in `…/varro-server.service.d/postgres.conf`):
+  `postgres://…@10.128.0.10,10.128.0.12:5432/varro?sslmode=verify-ca&sslrootcert=/etc/varro/pg-ca.crt&target_session_attrs=read-write`
+- Each data node is managed by the `pgautofailover` systemd unit (the old
+  `postgresql@15-main` unit is stopped+disabled; do NOT start it). Pre-cutover
+  config backups kept as `*.pre-autoctl` / `*.pre-multihost` for rollback.
+- Monitor commands: `sudo -u postgres pg_autoctl show state --pgdata /var/lib/postgresql/15/monitor`;
+  manual switchover: `… pg_autoctl perform failover --pgdata …/monitor`.
+
+---
+
+### Original validation notes (kept for reference)
+
+This extends the existing manual-failover HA (see
 [postgres-ha.md](postgres-ha.md)) with automatic promotion.
 
 ## What was validated (2026-10-13)
