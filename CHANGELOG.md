@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.69.0] — 2026-10-13
+- Custom dashboards: named multi-panel layouts built on the metric explorer. In Metric explorer, pick a metric + hosts + window and click "📊 Add to dashboard"; the new "📊 Dashboards" view renders each dashboard as a responsive grid of charts (per-panel host legends), with per-panel remove and whole-dashboard delete. Owner-scoped like saved views. `GET/POST/DELETE /api/v1/dashboards`.
+
 ## [v0.68.0] — 2026-10-13
 - Alert routing: per-org notification destinations (webhook, Slack, PagerDuty, Opsgenie), each with a minimum severity, additive to the collector's global webhook/Slack/email. Alerts fan out to every matching route — e.g. critical-only to PagerDuty, everything to Slack. PagerDuty uses Events API v2 (firing→trigger, resolved→resolve by dedup key); Opsgenie uses the Alerts API (create/close by alias). Managed per-org in Admin → Alert routing. `GET/POST/DELETE /api/v1/orgs/{id}/routes`. Webhook/Slack URLs are SSRF-guarded (same post-DNS IP policy as synthetic probes).
 

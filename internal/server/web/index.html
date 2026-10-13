@@ -155,6 +155,9 @@
     <a href="#" id="metricsLink" style="color:var(--accent); font-size:13px">📈 Metric explorer</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="dashboardsLink" style="color:var(--accent); font-size:13px">📊 Dashboards</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="otlpLink" style="color:var(--accent); font-size:13px">🛰 Custom metrics</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
@@ -438,6 +441,7 @@
       <select id="savedViewPick" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="">saved views…</option></select>
       <button class="abtn" id="saveViewBtn" style="color:var(--accent)">💾 Save view</button>
       <button class="abtn" id="deleteViewBtn" style="color:var(--red); display:none">🗑</button>
+      <button class="abtn" id="addToDashBtn" style="color:var(--accent)" title="add this chart as a panel to a dashboard">📊 Add to dashboard</button>
     </div>
     <div style="display:flex; gap:14px; flex-wrap:wrap">
       <div class="card" style="flex:3; min-width:320px; padding:10px">
@@ -449,6 +453,19 @@
       </div>
     </div>
     <div id="metricsLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:8px"></div>
+  </div>
+
+  <div id="dashboardsView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Dashboards</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">multi-panel layouts — build panels in Metric explorer, add them here</span>
+      <a href="#" id="dashboardsBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <select id="dashPick" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="">select dashboard…</option></select>
+      <button class="abtn" id="dashDeleteBtn" style="color:var(--red); display:none">🗑 Delete</button>
+    </header>
+    <div id="dashEmpty" style="color:var(--dim); font-size:13px; margin:20px 0">No dashboards yet. Open <b>Metric explorer</b>, choose a metric + hosts, and click <b>📊 Add to dashboard</b> to start one.</div>
+    <div id="dashGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:14px"></div>
   </div>
 
   <div id="otlpView" style="display:none">
@@ -731,6 +748,7 @@ document.addEventListener("click", ev => {
     case "alertAssign":   alertAssign(d.id); break;
     case "alertResolve":  alertResolve(d.id); break;
     case "delRoute":      deleteRoute(d.id); break;
+    case "dashRemovePanel": removeDashPanel(parseInt(d.i, 10)); break;
   }
 });
 
@@ -810,7 +828,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -1142,6 +1160,7 @@ function showAdmin(on) {
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
+  if (on && dashboardsMode) { hideDashboards(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1307,6 +1326,7 @@ function showDownload(on) {
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
+  if (on && dashboardsMode) { hideDashboards(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1337,6 +1357,7 @@ function showReport(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1578,6 +1599,7 @@ function showFlows(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1771,6 +1793,7 @@ function showLogs(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1874,6 +1897,7 @@ function showPriority(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     priorityMode = true;
     $("priorityView").style.display = "block";
     $("detail").style.display = "none";
@@ -1955,6 +1979,7 @@ function showMetrics(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     metricsMode = true;
     $("metricsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2080,6 +2105,146 @@ async function deleteCurrentView() {
   } catch (e) { oops(e); }
 }
 
+/* ---- dashboards view ---- */
+let dashboardsMode = false, currentDash = "";
+const METRIC_LABELS = { cpu_percent: "CPU %", mem_percent: "Memory %", disk_percent: "Disk %", rx_rate_bps: "Net RX", tx_rate_bps: "Net TX", io_read_bps: "Disk read", io_write_bps: "Disk write", max_temp_c: "Max temp °C" };
+$("dashboardsLink").onclick = e => { e.preventDefault(); closeSidebar(); showDashboards(true); };
+$("dashboardsBack").onclick = e => { e.preventDefault(); showDashboards(false); };
+$("dashPick").onchange = () => selectDashboard($("dashPick").value);
+$("dashDeleteBtn").onclick = () => deleteDashboard();
+$("addToDashBtn").onclick = () => addToDashboard();
+
+function hideDashboards() { dashboardsMode = false; $("dashboardsView").style.display = "none"; }
+
+function showDashboards(on) {
+  dashboardsMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
+    if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
+    dashboardsMode = true;
+    $("dashboardsView").style.display = "block";
+    $("detail").style.display = "none";
+    loadDashboards();
+  } else {
+    hideDashboards();
+    refreshEndpoints();
+  }
+}
+
+async function loadDashboards(keepName) {
+  try {
+    const r = await getJSON("/api/v1/dashboards");
+    window._dashboards = r.dashboards || [];
+    const sel = $("dashPick");
+    sel.innerHTML = `<option value="">select dashboard…</option>` +
+      window._dashboards.map(d => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join("");
+    const pick = keepName || currentDash;
+    if (pick && window._dashboards.some(d => d.name === pick)) {
+      sel.value = pick; selectDashboard(pick);
+    } else {
+      currentDash = ""; $("dashDeleteBtn").style.display = "none";
+      $("dashGrid").innerHTML = "";
+      $("dashEmpty").style.display = window._dashboards.length ? "none" : "block";
+      if (window._dashboards.length) $("dashEmpty").textContent = "Select a dashboard above.";
+    }
+  } catch (e) { $("dashEmpty").style.display = "block"; $("dashEmpty").textContent = e.message; }
+}
+
+function dashPanels(name) {
+  const d = (window._dashboards || []).find(x => x.name === name);
+  if (!d) return [];
+  try { return (JSON.parse(d.spec).panels) || []; } catch { return []; }
+}
+
+function selectDashboard(name) {
+  currentDash = name;
+  $("dashDeleteBtn").style.display = name ? "inline-block" : "none";
+  $("dashEmpty").style.display = name ? "none" : "block";
+  renderDashboard(name ? dashPanels(name) : []);
+}
+
+function renderDashboard(panels) {
+  const grid = $("dashGrid");
+  if (!panels.length) { grid.innerHTML = `<div style="color:var(--dim); font-size:13px">this dashboard has no panels — add some from Metric explorer</div>`; return; }
+  grid.innerHTML = panels.map((p, i) =>
+    `<div class="card" style="padding:10px">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px">
+        <div style="font-size:13px; font-weight:600">${esc(p.title || METRIC_LABELS[p.metric] || p.metric)}</div>
+        <button class="abtn danger" data-act="dashRemovePanel" data-i="${i}" style="padding:1px 8px; font-size:11px">✕</button>
+      </div>
+      <canvas id="dashPanel${i}" style="width:100%; height:200px; display:block"></canvas>
+      <div id="dashPanelLegend${i}" style="font-family:var(--mono); font-size:11px; color:var(--dim); margin-top:4px"></div>
+    </div>`).join("");
+  panels.forEach((p, i) => drawDashPanel(p, i));
+}
+
+async function drawDashPanel(p, i) {
+  const ids = p.endpoints || [];
+  const cv = $("dashPanel" + i);
+  if (!cv) return;
+  if (!ids.length) { drawChart(cv, []); return; }
+  try {
+    const r = await getJSON(orgQ(`/api/v1/metrics/series?metric=${encodeURIComponent(p.metric)}&minutes=${p.minutes || 60}&endpoints=${ids.map(encodeURIComponent).join(",")}`));
+    const series = (r.series || []).map((s, j) => ({ color: SERIES_COLORS[j % SERIES_COLORS.length], data: s.points.map(pt => ({ t: pt[0], v: pt[1] })) }));
+    const isRate = RATE_METRICS.has(p.metric);
+    drawChart(cv, series, { fmt: v => isRate ? fmtBytes(v, "") + "/s" : v.toFixed(v < 10 ? 1 : 0) });
+    $("dashPanelLegend" + i).innerHTML = (r.series || []).map((s, j) =>
+      `<span style="color:${SERIES_COLORS[j % SERIES_COLORS.length]}">● ${esc(s.hostname)}</span>`).join("  ");
+  } catch (e) { $("dashPanelLegend" + i).innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+
+async function saveDashboard(name, panels) {
+  await postJSON("/api/v1/dashboards", { name, spec: JSON.stringify({ panels }) });
+}
+
+async function removeDashPanel(i) {
+  const panels = dashPanels(currentDash);
+  panels.splice(i, 1);
+  try {
+    await saveDashboard(currentDash, panels);
+    await loadDashboards(currentDash);
+  } catch (e) { oops(e); }
+}
+
+async function deleteDashboard() {
+  const d = (window._dashboards || []).find(x => x.name === currentDash);
+  if (!d || !confirm(`Delete dashboard "${d.name}"?`)) return;
+  try {
+    await del(`/api/v1/dashboards/${d.id}`);
+    currentDash = "";
+    await loadDashboards();
+  } catch (e) { oops(e); }
+}
+
+// addToDashboard appends the current metric-explorer selection as a panel.
+async function addToDashboard() {
+  const ids = [...metricHostSel];
+  if (!ids.length) { alert("select one or more hosts first"); return; }
+  try {
+    const r = await getJSON("/api/v1/dashboards");
+    const existing = (r.dashboards || []).map(d => d.name);
+    let name = prompt(`Add this chart to which dashboard?${existing.length ? "\n\nExisting: " + existing.join(", ") : ""}`, existing[0] || "ops");
+    if (!name) return;
+    name = name.trim();
+    const d = (r.dashboards || []).find(x => x.name === name);
+    let panels = [];
+    if (d) { try { panels = JSON.parse(d.spec).panels || []; } catch {} }
+    const metric = $("metricPick").value;
+    panels.push({ title: METRIC_LABELS[metric] || metric, metric, minutes: metricWindow, endpoints: ids });
+    await saveDashboard(name, panels);
+    alert(`Added panel to "${name}" (${panels.length} panel${panels.length === 1 ? "" : "s"}).`);
+  } catch (e) { oops(e); }
+}
+
 /* ---- custom metrics (OTLP) view ---- */
 let otlpMode = false, otlpWindow = 60, otlpData = [];
 $("otlpLink").onclick = e => { e.preventDefault(); closeSidebar(); showOtlp(true); };
@@ -2100,6 +2265,7 @@ function showOtlp(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     otlpMode = true;
     $("otlpView").style.display = "block";
     $("detail").style.display = "none";
@@ -2177,6 +2343,7 @@ function showTraces(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
     tracesMode = true;
     $("tracesView").style.display = "block";
     $("detail").style.display = "none";
@@ -2306,6 +2473,7 @@ function showSynthetic(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (dashboardsMode) hideDashboards();
     syntheticMode = true;
     $("syntheticView").style.display = "block";
     $("detail").style.display = "none";
@@ -2469,6 +2637,7 @@ function showTopo(on) {
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
+  if (on && dashboardsMode) { hideDashboards(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

@@ -559,6 +559,15 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Dashboard is a named, persisted multi-panel layout. Its Spec is an opaque
+// JSON blob the dashboard UI interprets: {"panels":[{title,metric,minutes,endpoints}]}.
+type Dashboard struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Spec      string    `json:"spec"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // VulnPriority ranks one endpoint's vulnerability exposure by runtime
 // reachability — the "what to patch first" signal: raw CVSS weight scaled by
 // how reachable/active the host actually is.

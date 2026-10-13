@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS saved_views (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_views_owner ON saved_views(owner);
+CREATE TABLE IF NOT EXISTS dashboards (
+	id         INTEGER PRIMARY KEY,
+	owner      TEXT NOT NULL,
+	org_id     TEXT NOT NULL DEFAULT '',
+	name       TEXT NOT NULL,
+	spec       TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dashboards_owner ON dashboards(owner);
 CREATE TABLE IF NOT EXISTS synthetic_checks (
 	id          TEXT PRIMARY KEY,
 	org_id      TEXT NOT NULL,
