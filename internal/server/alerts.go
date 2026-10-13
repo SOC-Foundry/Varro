@@ -255,7 +255,11 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 			return
 		}
 		s.log.Warn("ALERT firing", "rule", rule, "endpoint", ep.Hostname, "message", message)
-		s.notify(ep.OrgID, alertSeverity("firing", rule), "firing", rule, ep.Hostname, message)
+		if s.alertSilenced(ctx, ep.OrgID, rule, ep.ID) {
+			s.log.Info("alert silenced (maintenance window)", "rule", rule, "endpoint", ep.Hostname)
+		} else {
+			s.notify(ep.OrgID, alertSeverity("firing", rule), "firing", rule, ep.Hostname, message)
+		}
 		s.siemForward(ep.OrgID, ep.Hostname, "alert:"+rule, "WARNING", "", message)
 	case !breaching && openID != 0:
 		if err := s.store.ResolveAlert(ctx, openID); err != nil {

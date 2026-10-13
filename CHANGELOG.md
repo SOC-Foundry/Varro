@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.76.0] — 2026-10-13
+- Auto-response (SOAR-lite): playbooks that automatically network-isolate an endpoint the moment a detection fires matching a severity/rule filter — contained in seconds with no human in the loop (and won't re-isolate an already-contained host). Managed in Admin → Auto-response playbooks. `GET/POST/PUT/DELETE /api/v1/orgs/{id}/playbooks`.
+- Alert silences / maintenance windows: suppress alert notifications (the alert is still recorded) for matching rule/endpoint until the window expires, so planned work doesn't page. Admin → Alert silences. `GET/POST/DELETE /api/v1/orgs/{id}/silences`.
+
 ## [v0.75.0] — 2026-10-13
 - Threat-hunting console: a new "🔎 Threat hunt" view runs one ad-hoc search across security events and logs at once (free-text, with source / severity / time-window filters), results merged newest-first. Save a hunt for reuse, and promote any hunt to a recurring alert that fires when it matches at/above a threshold in a 5-minute window. API: `GET /api/v1/hunt` (search) and `GET/POST/DELETE /api/v1/hunts` (saved hunts); hunt alerts ride the existing engine (`hunt:<name>` rules).
 

@@ -689,6 +689,31 @@
           <div id="sigmaResult" style="font-size:12px; margin-top:6px"></div>
         </details>
       </div>
+      <div class="card wide"><h3>Auto-response playbooks</h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:8px">When a detection fires matching the criteria, Varro automatically network-isolates the affected endpoint (keeps the agent↔collector link). Lift containment from the endpoint's Response controls.</p>
+        <table><thead><tr><th>Name</th><th>When</th><th>Action</th><th style="width:40px">On</th><th style="width:40px"></th></tr></thead><tbody id="playbookRows"></tbody></table>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px">
+          <input id="pbName" placeholder="playbook name" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; min-width:140px">
+          <select id="pbSev" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="">any severity</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select>
+          <input id="pbRule" placeholder="rule contains… (optional, e.g. reverse_shell)" style="flex:1; min-width:160px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px">
+          <span style="color:var(--dim); font-size:12px">→ isolate</span>
+          <button class="abtn" id="addPbBtn">Add playbook</button>
+        </div>
+        <div id="pbErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
+      </div>
+      <div class="card wide"><h3>Alert silences <span style="color:var(--dim); font-size:11px; text-transform:none; letter-spacing:0">maintenance windows</span></h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Suppress alert notifications (the alert is still recorded) for matching alerts until the window expires — e.g. while patching a host.</p>
+        <table><thead><tr><th>Name</th><th>Matches</th><th>Until</th><th style="width:40px"></th></tr></thead><tbody id="silenceRows"></tbody></table>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px">
+          <input id="silName" placeholder="reason (e.g. patching db)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; min-width:140px">
+          <input id="silRule" placeholder="rule contains… (optional)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px">
+          <input id="silEndpoint" placeholder="endpoint id… (optional)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px">
+          <input id="silHours" type="number" min="1" max="720" value="2" title="hours" style="width:70px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px">
+          <span style="color:var(--dim); font-size:12px">hours</span>
+          <button class="abtn" id="addSilBtn">Add silence</button>
+        </div>
+        <div id="silErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
+      </div>
       <div class="card wide"><h3>Audit log <span class="now" id="auditNow"></span></h3>
         <div style="overflow-x:auto; max-height:320px; overflow-y:auto"><table>
           <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
@@ -1260,6 +1285,8 @@ function setupAdmin(me) {
   $("addRouteBtn").onclick = addRoute;
   $("addDetBtn").onclick = addDetRule;
   $("importSigmaBtn").onclick = importSigma;
+  $("addPbBtn").onclick = addPlaybook;
+  $("addSilBtn").onclick = addSilence;
   $("mintBtn").onclick = async () => {
     try {
       const out = await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/tokens`,
@@ -1327,6 +1354,8 @@ async function loadAdminOrg() {
     } catch {}
     loadRoutes(org);
     loadDetections(org);
+    loadPlaybooks(org);
+    loadSilences(org);
     loadAudit();
   } catch (e) { oops(e); }
 }
@@ -1468,6 +1497,71 @@ async function importSigma() {
       (warns.length ? ` · <span style="color:var(--amber)">${warns.map(esc).join("; ")}</span>` : "");
     loadDetections(org);
   } catch (e) { $("sigmaResult").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+
+/* ---- auto-response playbooks (admin) ---- */
+async function loadPlaybooks(org) {
+  try {
+    const r = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/playbooks`);
+    const rows = r.playbooks || [];
+    const tb = $("playbookRows");
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no playbooks</td></tr>`; return; }
+    tb.innerHTML = rows.map(p => {
+      const when = [p.on_severity ? `${esc(p.on_severity)}+` : "", p.on_rule ? `rule~"${esc(p.on_rule)}"` : ""].filter(Boolean).join(" · ") || "any detection";
+      return `<tr data-id="${esc(p.id)}">
+        <td><b>${esc(p.name)}</b></td><td style="font-size:12px">${when}</td>
+        <td style="font-family:var(--mono);color:var(--amber)">${esc(p.action)}</td>
+        <td><input type="checkbox" class="pon" ${p.enabled ? "checked" : ""}></td>
+        <td><button class="del-pb" title="delete" style="color:var(--red);border:none;background:none;cursor:pointer;font-size:14px">✕</button></td></tr>`;
+    }).join("");
+    tb.querySelectorAll("tr[data-id]").forEach(tr => {
+      const id = tr.getAttribute("data-id");
+      tr.querySelector(".pon").onchange = async e => {
+        try { const x = await fetch(`/api/v1/orgs/${encodeURIComponent(org)}/playbooks/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: e.target.checked }) }); if (!x.ok) throw new Error(await x.text()); } catch (ex) { oops(ex); }
+      };
+      tr.querySelector(".del-pb").onclick = async () => { if (!confirm("Delete this playbook?")) return; try { await del(`/api/v1/orgs/${encodeURIComponent(org)}/playbooks/${encodeURIComponent(id)}`); loadPlaybooks(org); } catch (ex) { oops(ex); } };
+    });
+  } catch (e) { $("playbookRows").innerHTML = `<tr><td colspan="5" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+async function addPlaybook() {
+  $("pbErr").textContent = "";
+  const org = $("adminOrgSelect").value;
+  if (!$("pbName").value.trim()) { $("pbErr").textContent = "name is required"; return; }
+  const body = { name: $("pbName").value.trim(), on_severity: $("pbSev").value, on_rule: $("pbRule").value.trim(), action: "isolate" };
+  try { await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/playbooks`, body); $("pbName").value = ""; $("pbRule").value = ""; loadPlaybooks(org); }
+  catch (e) { $("pbErr").textContent = e.message; }
+}
+
+/* ---- alert silences (admin) ---- */
+async function loadSilences(org) {
+  try {
+    const r = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/silences`);
+    const rows = r.silences || [];
+    const tb = $("silenceRows");
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="4" style="color:var(--dim)">no silences</td></tr>`; return; }
+    const now = Date.now();
+    tb.innerHTML = rows.map(s => {
+      const m = [s.match_rule ? `rule~"${esc(s.match_rule)}"` : "", s.match_endpoint ? `ep=${esc(s.match_endpoint)}` : ""].filter(Boolean).join(" · ") || "all alerts";
+      const until = new Date(s.until);
+      const expired = until.getTime() < now;
+      return `<tr data-id="${esc(s.id)}">
+        <td><b>${esc(s.name)}</b></td><td style="font-size:12px">${m}</td>
+        <td style="font-family:var(--mono);font-size:12px;color:${expired ? "var(--dim)" : "var(--amber)"}">${esc(until.toLocaleString())}${expired ? " (expired)" : ""}</td>
+        <td><button class="del-sil" title="delete" style="color:var(--red);border:none;background:none;cursor:pointer;font-size:14px">✕</button></td></tr>`;
+    }).join("");
+    tb.querySelectorAll("tr[data-id]").forEach(tr => {
+      const id = tr.getAttribute("data-id");
+      tr.querySelector(".del-sil").onclick = async () => { try { await del(`/api/v1/orgs/${encodeURIComponent(org)}/silences/${encodeURIComponent(id)}`); loadSilences(org); } catch (ex) { oops(ex); } };
+    });
+  } catch (e) { $("silenceRows").innerHTML = `<tr><td colspan="4" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+async function addSilence() {
+  $("silErr").textContent = "";
+  const org = $("adminOrgSelect").value;
+  if (!$("silName").value.trim()) { $("silErr").textContent = "reason is required"; return; }
+  const body = { name: $("silName").value.trim(), match_rule: $("silRule").value.trim(), match_endpoint: $("silEndpoint").value.trim(), hours: parseInt($("silHours").value, 10) || 1 };
+  try { await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/silences`, body); $("silName").value = ""; $("silRule").value = ""; $("silEndpoint").value = ""; loadSilences(org); }
+  catch (e) { $("silErr").textContent = e.message; }
 }
 
 async function saveFIM() {

@@ -559,6 +559,31 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Playbook is an automated response: when a detection fires matching its
+// criteria, Varro runs Action against the affected endpoint (SOAR-lite).
+type Playbook struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	Name       string    `json:"name"`
+	Enabled    bool      `json:"enabled"`
+	OnSeverity string    `json:"on_severity,omitempty"` // "" = any; else fire at/above this (LOW<MEDIUM<HIGH<CRITICAL)
+	OnRule     string    `json:"on_rule,omitempty"`     // "" = any; else substring match on the detection rule
+	Action     string    `json:"action"`                // "isolate"
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Silence suppresses alert notifications (not the alert record) for matching
+// alerts until Until — a maintenance window.
+type Silence struct {
+	ID            string    `json:"id"`
+	OrgID         string    `json:"org_id"`
+	Name          string    `json:"name"`
+	MatchRule     string    `json:"match_rule,omitempty"`     // "" = any; else substring on rule name
+	MatchEndpoint string    `json:"match_endpoint,omitempty"` // "" = any; else exact endpoint id
+	Until         time.Time `json:"until"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // HuntResult is one unified row in a threat-hunt search (an event or a log line
 // normalized to a common shape).
 type HuntResult struct {

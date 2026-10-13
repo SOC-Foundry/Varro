@@ -27,9 +27,10 @@ var builtinDetections = []model.BuiltinRuleInfo{
 // ---- per-org rule cache (refreshed lazily; detect() runs per snapshot) ----
 
 type detOrgRules struct {
-	rules    []model.DetectionRule
-	settings map[string]model.DetectionSetting
-	at       time.Time
+	rules     []model.DetectionRule
+	settings  map[string]model.DetectionSetting
+	playbooks []model.Playbook
+	at        time.Time
 }
 
 type detCache struct {
@@ -56,7 +57,8 @@ func (s *Server) orgDetections(ctx context.Context, orgID string) *detOrgRules {
 	if settings == nil {
 		settings = map[string]model.DetectionSetting{}
 	}
-	od := &detOrgRules{rules: rules, settings: settings, at: time.Now()}
+	playbooks, _ := s.store.Playbooks(ctx, orgID)
+	od := &detOrgRules{rules: rules, settings: settings, playbooks: playbooks, at: time.Now()}
 	s.detc.byOrg[orgID] = od
 	return od
 }
@@ -81,6 +83,7 @@ func (s *Server) fireDetection(ctx context.Context, orgID string, snap *model.Sn
 	s.log.Warn("behavioral detection", "rule", rule, "severity", severity, "endpoint", snap.Hostname, "detail", msg)
 	s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventDetection, Message: full}})
 	s.siemForward(orgID, snap.Hostname, "detection", severity, mitre, full)
+	s.runPlaybooks(ctx, orgID, snap, rule, severity)
 }
 
 // evaluateCustomDetections runs the org's custom/Sigma rules against a snapshot.

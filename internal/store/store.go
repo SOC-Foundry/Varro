@@ -195,6 +195,27 @@ CREATE TABLE IF NOT EXISTS detection_settings (
 	severity  TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (org_id, rule_name)
 );
+CREATE TABLE IF NOT EXISTS playbooks (
+	id          TEXT PRIMARY KEY,
+	org_id      TEXT NOT NULL,
+	name        TEXT NOT NULL,
+	enabled     INTEGER NOT NULL DEFAULT 1,
+	on_severity TEXT NOT NULL DEFAULT '',
+	on_rule     TEXT NOT NULL DEFAULT '',
+	action      TEXT NOT NULL DEFAULT 'isolate',
+	created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_playbooks_org ON playbooks(org_id);
+CREATE TABLE IF NOT EXISTS silences (
+	id             TEXT PRIMARY KEY,
+	org_id         TEXT NOT NULL,
+	name           TEXT NOT NULL,
+	match_rule     TEXT NOT NULL DEFAULT '',
+	match_endpoint TEXT NOT NULL DEFAULT '',
+	until          INTEGER NOT NULL,
+	created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_silences_org ON silences(org_id);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,
