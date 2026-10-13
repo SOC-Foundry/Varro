@@ -559,6 +559,30 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// HuntResult is one unified row in a threat-hunt search (an event or a log line
+// normalized to a common shape).
+type HuntResult struct {
+	Source     string `json:"source"` // "event" | "log"
+	TS         int64  `json:"ts"`
+	EndpointID string `json:"endpoint_id"`
+	Hostname   string `json:"hostname"`
+	Kind       string `json:"kind"` // event type, or log severity
+	Message    string `json:"message"`
+}
+
+// Hunt is a saved threat-hunt query, optionally promoted to a recurring alert.
+type Hunt struct {
+	ID        int64     `json:"id"`
+	OrgID     string    `json:"org_id,omitempty"`
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`              // free-text substring
+	Source    string    `json:"source"`             // all|events|logs
+	Severity  string    `json:"severity,omitempty"` // log severity filter
+	Alerting  bool      `json:"alerting"`           // fire an alert when matches ≥ Threshold
+	Threshold int       `json:"threshold"`          // over a 5-minute window
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Detection-rule streams (what a custom rule matches against) and the fields
 // available on each.
 const (

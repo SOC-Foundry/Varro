@@ -128,6 +128,19 @@ CREATE TABLE IF NOT EXISTS dashboards (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dashboards_owner ON dashboards(owner);
+CREATE TABLE IF NOT EXISTS hunts (
+	id         INTEGER PRIMARY KEY,
+	owner      TEXT NOT NULL,
+	org_id     TEXT NOT NULL DEFAULT '',
+	name       TEXT NOT NULL,
+	query      TEXT NOT NULL DEFAULT '',
+	source     TEXT NOT NULL DEFAULT 'all',
+	severity   TEXT NOT NULL DEFAULT '',
+	alerting   INTEGER NOT NULL DEFAULT 0,
+	threshold  INTEGER NOT NULL DEFAULT 1,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hunts_owner ON hunts(owner);
 CREATE TABLE IF NOT EXISTS synthetic_checks (
 	id          TEXT PRIMARY KEY,
 	org_id      TEXT NOT NULL,

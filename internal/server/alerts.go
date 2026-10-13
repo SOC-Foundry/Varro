@@ -93,6 +93,7 @@ func (s *Server) alertLoop(ctx context.Context) {
 				s.evaluateRules(ctx)
 				s.evaluateServiceAlerts(ctx)
 				s.evaluateLogAlerts(ctx)
+				s.evaluateHuntAlerts(ctx)
 			}
 		case <-anomalies.C:
 			if s.isLeader() {
@@ -173,7 +174,8 @@ func (s *Server) resolveOrphanedAlerts(ctx context.Context) {
 		return
 	}
 	for _, a := range firing {
-		if !known[a.Rule] {
+		// hunt:* rules are dynamic (one per saved alerting hunt); not orphans.
+		if !known[a.Rule] && !strings.HasPrefix(a.Rule, "hunt:") {
 			if err := s.store.ResolveAlert(ctx, a.ID); err == nil {
 				s.log.Info("resolved orphaned alert for removed rule", "rule", a.Rule, "endpoint", a.Hostname)
 			}

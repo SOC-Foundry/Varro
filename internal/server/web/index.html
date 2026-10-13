@@ -166,6 +166,7 @@
     <a href="#" id="topoLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 11 15.9 7M8.1 13 15.9 17"/></svg>Topology</a>
     <a href="#" id="flowsLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>Flows &amp; talkers</a>
     <a href="#" id="logsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h11"/></svg>Logs</a>
+    <a href="#" id="huntLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Threat hunt</a>
     <a href="#" id="reportLink" class="navitem"><svg viewBox="0 0 24 24"><rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5h6v2.5H9z"/><path d="M8.8 13l2.2 2.2 4.2-4.6"/></svg>Compliance report</a>
     <a href="#" id="priorityLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.3"/></svg>Priority fixes</a>
     <a href="#" id="metricsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M4 5v15h15"/><path d="M7 15l3.2-4 3 2 4.2-6"/></svg>Metric explorer</a>
@@ -402,6 +403,37 @@
           <th style="width:80px">Severity</th><th style="width:150px">Source</th><th>Message</th>
         </tr></thead>
         <tbody id="logsRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="huntView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Threat hunt</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">ad-hoc search across security events &amp; logs</span>
+      <a href="#" id="huntBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+    </header>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px">
+      <input id="huntQ" placeholder="search text (e.g. reverse_shell, sudo, failed)…" style="flex:1; min-width:220px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-size:12.5px">
+      <select id="huntSource" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px">
+        <option value="all">events + logs</option>
+        <option value="events">events only</option>
+        <option value="logs">logs only</option>
+      </select>
+      <span id="huntRanges" style="display:flex; gap:4px"></span>
+      <button class="abtn" id="huntRun" style="color:var(--accent)">Search</button>
+      <button class="abtn" id="huntSaveBtn" style="color:var(--accent)">💾 Save hunt</button>
+      <select id="huntSaved" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="">saved hunts…</option></select>
+      <button class="abtn" id="huntDeleteBtn" style="color:var(--red); display:none">🗑</button>
+    </div>
+    <div id="huntLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <div class="card" style="overflow-x:auto; max-height:70vh; overflow-y:auto">
+      <table style="width:100%; min-width:760px">
+        <thead><tr>
+          <th style="width:150px">Time</th><th style="width:64px">Source</th><th style="width:120px">Host</th>
+          <th style="width:140px">Kind</th><th>Message</th>
+        </tr></thead>
+        <tbody id="huntRows"></tbody>
       </table>
     </div>
   </div>
@@ -907,7 +939,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode || huntMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) { $("detail").style.display = eps.length && selected ? "block" : "none"; setActiveNav(null); }
 }
@@ -1250,6 +1282,7 @@ function showAdmin(on) {
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
+  if (on && huntMode) { hideHunt(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1502,6 +1535,7 @@ function showDownload(on) {
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
+  if (on && huntMode) { hideHunt(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1533,6 +1567,7 @@ function showReport(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1775,6 +1810,7 @@ function showFlows(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1969,6 +2005,7 @@ function showLogs(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2050,6 +2087,122 @@ function downloadLogsCsv() {
   a.download = "varro-logs.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
+/* ---- threat hunt view ---- */
+let huntMode = false, huntWindow = 1440, huntData = [], currentHunt = "", huntSearchT = null;
+$("huntLink").onclick = e => { e.preventDefault(); closeSidebar(); showHunt(true); };
+$("huntBack").onclick = e => { e.preventDefault(); showHunt(false); };
+$("huntRun").onclick = () => loadHunt();
+$("huntQ").oninput = () => { clearTimeout(huntSearchT); huntSearchT = setTimeout(loadHunt, 400); };
+$("huntSource").onchange = () => loadHunt();
+$("huntSaveBtn").onclick = () => saveHunt();
+$("huntDeleteBtn").onclick = () => deleteHunt();
+$("huntSaved").onchange = () => applyHunt($("huntSaved").value);
+
+function hideHunt() { huntMode = false; $("huntView").style.display = "none"; }
+
+function showHunt(on) {
+  huntMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
+    if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
+    huntMode = true;
+    $("huntView").style.display = "block";
+    $("detail").style.display = "none";
+    setupHuntRanges();
+    loadSavedHunts();
+    loadHunt();
+  } else {
+    hideHunt();
+    refreshEndpoints();
+  }
+}
+
+function setupHuntRanges() {
+  if (setupHuntRanges.done) return;
+  const box = $("huntRanges"); box.innerHTML = "";
+  for (const [label, m] of [["1h", 60], ["24h", 1440], ["7d", 10080], ["30d", 43200]]) {
+    const b = document.createElement("button"); b.className = "abtn"; b.textContent = label;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (m === huntWindow ? ";color:var(--accent);border-color:var(--accent)" : "");
+    b.onclick = () => { huntWindow = m; setupHuntRanges.done = false; setupHuntRanges(); loadHunt(); };
+    box.appendChild(b);
+  }
+  setupHuntRanges.done = true;
+}
+
+async function loadHunt() {
+  const p = new URLSearchParams();
+  p.set("minutes", huntWindow); p.set("limit", "300"); p.set("source", $("huntSource").value);
+  if ($("huntQ").value.trim()) p.set("q", $("huntQ").value.trim());
+  try {
+    const r = await getJSON(orgQ("/api/v1/hunt?" + p.toString()));
+    huntData = r.results || [];
+    renderHunt();
+  } catch (e) { $("huntRows").innerHTML = `<tr><td colspan="5" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderHunt() {
+  const rows = $("huntRows");
+  if (!huntData.length) { rows.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no matches in this window</td></tr>`; $("huntLegend").textContent = ""; return; }
+  rows.innerHTML = huntData.map(r => {
+    const t = new Date(r.ts * 1000).toLocaleString();
+    const col = r.source === "event" ? "var(--accent)" : (SEV_COLOR[r.kind] || "var(--dim)");
+    return `<tr>
+      <td style="font-family:var(--mono); color:var(--dim); white-space:nowrap">${esc(t)}</td>
+      <td style="color:${r.source === "event" ? "var(--accent)" : "var(--dim)"}">${esc(r.source)}</td>
+      <td style="font-family:var(--mono)">${esc(r.hostname || r.endpoint_id)}</td>
+      <td style="font-family:var(--mono); color:${col}">${esc(r.kind || "—")}</td>
+      <td style="font-family:var(--mono); white-space:pre-wrap; word-break:break-word">${esc(r.message)}</td>
+    </tr>`;
+  }).join("");
+  const events = huntData.filter(r => r.source === "event").length;
+  $("huntLegend").innerHTML = `${huntData.length} result${huntData.length === 1 ? "" : "s"} · ${events} event(s) · ${huntData.length - events} log line(s)`;
+}
+
+async function loadSavedHunts() {
+  try {
+    const r = await getJSON("/api/v1/hunts");
+    window._hunts = r.hunts || [];
+    $("huntSaved").innerHTML = `<option value="">saved hunts…</option>` +
+      window._hunts.map(h => `<option value="${esc(h.name)}">${esc(h.name)}${h.alerting ? " 🔔" : ""}</option>`).join("");
+  } catch (e) { /* lab/none */ }
+}
+function applyHunt(name) {
+  const h = (window._hunts || []).find(x => x.name === name);
+  $("huntDeleteBtn").style.display = name ? "inline-block" : "none";
+  currentHunt = name;
+  if (!h) return;
+  $("huntQ").value = h.query || "";
+  $("huntSource").value = h.source || "all";
+  loadHunt();
+}
+async function saveHunt() {
+  const name = prompt("Save hunt as:", currentHunt || $("huntQ").value.slice(0, 30));
+  if (!name) return;
+  const alerting = confirm("Alert on this hunt?\n\nOK = fire an alert whenever it matches ≥1 event/log in a 5-minute window.\nCancel = save without alerting.");
+  const body = { name: name.trim(), query: $("huntQ").value.trim(), source: $("huntSource").value, alerting, threshold: 1 };
+  try {
+    await postJSON("/api/v1/hunts", body);
+    currentHunt = name.trim(); await loadSavedHunts();
+    $("huntSaved").value = currentHunt; $("huntDeleteBtn").style.display = "inline-block";
+  } catch (e) { oops(e); }
+}
+async function deleteHunt() {
+  const h = (window._hunts || []).find(x => x.name === currentHunt);
+  if (!h || !confirm(`Delete hunt "${h.name}"?`)) return;
+  try { await del(`/api/v1/hunts/${h.id}`); currentHunt = ""; $("huntSaved").value = ""; $("huntDeleteBtn").style.display = "none"; await loadSavedHunts(); }
+  catch (e) { oops(e); }
+}
+
 /* ---- priority fixes view ---- */
 let priorityMode = false, priorityData = [];
 $("priorityLink").onclick = e => { e.preventDefault(); closeSidebar(); showPriority(true); };
@@ -2073,6 +2226,7 @@ function showPriority(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     priorityMode = true;
     $("priorityView").style.display = "block";
     $("detail").style.display = "none";
@@ -2161,6 +2315,7 @@ function showMetrics(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     metricsMode = true;
     $("metricsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2461,6 +2616,7 @@ function showOtlp(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     otlpMode = true;
     $("otlpView").style.display = "block";
     $("detail").style.display = "none";
@@ -2539,6 +2695,7 @@ function showTraces(on) {
     if (tracesMode) hideTraces();
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     tracesMode = true;
     $("tracesView").style.display = "block";
     $("detail").style.display = "none";
@@ -2669,6 +2826,7 @@ function showSynthetic(on) {
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
     if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
     syntheticMode = true;
     $("syntheticView").style.display = "block";
     $("detail").style.display = "none";
@@ -2833,6 +2991,7 @@ function showTopo(on) {
   if (on && tracesMode) { hideTraces(); }
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
+  if (on && huntMode) { hideHunt(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

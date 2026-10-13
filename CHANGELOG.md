@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.75.0] — 2026-10-13
+- Threat-hunting console: a new "🔎 Threat hunt" view runs one ad-hoc search across security events and logs at once (free-text, with source / severity / time-window filters), results merged newest-first. Save a hunt for reuse, and promote any hunt to a recurring alert that fires when it matches at/above a threshold in a 5-minute window. API: `GET /api/v1/hunt` (search) and `GET/POST/DELETE /api/v1/hunts` (saved hunts); hunt alerts ride the existing engine (`hunt:<name>` rules).
+
 ## [v0.74.0] — 2026-10-13
 - Detection engineering: behavioral detections are now manageable per org, not just hardcoded. In Admin → Detection rules you can toggle and re-severity the built-ins (reverse shell, backdoor listener, crypto miner, recon, exec storm), add custom field-match rules over the process / connection / listener streams, and **import Sigma rules** (a pragmatic subset: title/level/tags→MITRE, logsource category→stream, a detection selection → AND-of-fields / OR-of-values, with warnings for unsupported parts). New `detection_rules` + `detection_settings` tables; `GET/POST/PUT/DELETE /api/v1/orgs/{id}/detections` plus `/sigma` and `/builtin/{name}`.
 
