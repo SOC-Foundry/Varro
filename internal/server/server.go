@@ -176,6 +176,9 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/tokens/{tokenID}", s.handleRevokeOrgToken)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/members", s.handleOrgInvite)
 	mux.HandleFunc("GET /api/v1/orgs/{id}/members", s.handleOrgMembers)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/routes", s.handleOrgRoutes)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/routes", s.handleOrgRouteCreate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/routes/{routeID}", s.handleOrgRouteDelete)
 	mux.HandleFunc("GET /download/{asset}", s.handleDownload)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
@@ -375,7 +378,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if len(snap.Events) > 0 {
-			s.notifyEvents(snap.Hostname, snap.Events)
+			s.notifyEvents(orgID, snap.Hostname, snap.Events)
 		}
 		s.correlateEdges(r, orgID, snap)
 		s.checkThreats(r.Context(), orgID, snap)

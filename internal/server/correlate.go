@@ -70,6 +70,6 @@ func (s *Server) raiseCoordinated(ctx context.Context, orgID, host, agentID, ind
 		indicator, n, corrWindow)
 	s.store.InsertServerEvent(ctx, orgID, agentID, model.EventDetection, msg)
 	s.log.Warn("coordinated threat", "indicator", indicator, "endpoints", n)
-	s.notifyEvents(host, []model.Event{{Type: model.EventDetection, Message: msg}})
+	s.notifyEvents(orgID, host, []model.Event{{Type: model.EventDetection, Message: msg}})
 	s.siemForward(orgID, host, "coordinated_threat", "CRITICAL", "T1071 Application Layer Protocol", msg)
 }

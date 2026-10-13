@@ -96,7 +96,7 @@ func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot)
 		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDetection, full)
 		s.log.Warn("behavioral detection", "rule", rule, "severity", severity,
 			"endpoint", snap.Hostname, "detail", msg)
-		s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventDetection, Message: full}})
+		s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventDetection, Message: full}})
 		s.siemForward(orgID, snap.Hostname, "detection", severity, mitreTechnique[rule], full)
 	}
 

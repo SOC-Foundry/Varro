@@ -583,6 +583,36 @@ const (
 	ProbeTCP  = "tcp"
 )
 
+// Notification severities, lowest to highest. A route fires for alerts at or
+// above its MinSeverity.
+const (
+	SevInfo     = "info"
+	SevWarning  = "warning"
+	SevCritical = "critical"
+)
+
+// Notification route types.
+const (
+	RouteWebhook   = "webhook"   // generic JSON POST
+	RouteSlack     = "slack"     // Slack incoming webhook ({"text":...})
+	RoutePagerDuty = "pagerduty" // PagerDuty Events API v2 (Target = routing key)
+	RouteOpsgenie  = "opsgenie"  // Opsgenie Alerts API (Target = GenieKey)
+)
+
+// NotifyRoute is a per-org notification destination. Routes are additive to the
+// collector's global webhook/Slack/email config: an org's alerts fan out to
+// every one of its enabled routes whose MinSeverity the alert meets, plus the
+// global destinations.
+type NotifyRoute struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	Type        string    `json:"type"`         // webhook|slack|pagerduty|opsgenie
+	Target      string    `json:"target"`       // URL (webhook/slack) or integration/routing key (pagerduty/opsgenie)
+	MinSeverity string    `json:"min_severity"` // info|warning|critical
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // SyntheticCheck is an operator-configured active uptime probe: the collector
 // periodically reaches out to Target and records whether it responds. Unlike
 // the rest of Varro's telemetry (passively reported by agents), this is an

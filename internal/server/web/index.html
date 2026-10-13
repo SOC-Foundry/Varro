@@ -585,6 +585,26 @@
         <textarea id="fimPaths" rows="4" spellcheck="false" style="width:100%; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:var(--mono); font-size:12.5px" placeholder="/etc/nginx/nginx.conf&#10;/var/www/html"></textarea>
         <button id="saveFimBtn" class="abtn" style="margin-top:8px">Save watchlist</button>
       </div>
+      <div class="card wide"><h3>Alert routing</h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Where this org's alerts go, on top of the collector's global webhook/Slack/email. Each route fires for alerts at or above its severity. PagerDuty/Opsgenie use the integration/API key as the target; firing→trigger, resolved→resolve.</p>
+        <table><thead><tr><th>Type</th><th>Target</th><th>Min severity</th><th></th></tr></thead><tbody id="routeRows"></tbody></table>
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center">
+          <select id="routeType" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12.5px">
+            <option value="webhook">Webhook</option>
+            <option value="slack">Slack</option>
+            <option value="pagerduty">PagerDuty</option>
+            <option value="opsgenie">Opsgenie</option>
+          </select>
+          <input id="routeTarget" placeholder="https://… or integration/API key" style="flex:1; min-width:220px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-size:12.5px">
+          <select id="routeSeverity" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12.5px">
+            <option value="info">info+</option>
+            <option value="warning" selected>warning+</option>
+            <option value="critical">critical only</option>
+          </select>
+          <button id="addRouteBtn" class="abtn">Add route</button>
+        </div>
+        <div id="routeErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
+      </div>
       <div class="card wide"><h3>Audit log <span class="now" id="auditNow"></span></h3>
         <div style="overflow-x:auto; max-height:320px; overflow-y:auto"><table>
           <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
@@ -710,6 +730,7 @@ document.addEventListener("click", ev => {
     case "alertAck":      alertAck(d.id); break;
     case "alertAssign":   alertAssign(d.id); break;
     case "alertResolve":  alertResolve(d.id); break;
+    case "delRoute":      deleteRoute(d.id); break;
   }
 });
 
@@ -1099,6 +1120,7 @@ function setupAdmin(me) {
     } catch (e) { oops(e); }
   };
   $("saveFimBtn").onclick = saveFIM;
+  $("addRouteBtn").onclick = addRoute;
   $("mintBtn").onclick = async () => {
     try {
       const out = await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/tokens`,
@@ -1162,6 +1184,7 @@ async function loadAdminOrg() {
       const fim = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/fim`);
       $("fimPaths").value = (fim.paths ?? []).join("\n");
     } catch {}
+    loadRoutes(org);
     loadAudit();
   } catch (e) { oops(e); }
 }
@@ -1178,6 +1201,46 @@ async function loadAudit() {
   } catch (e) {
     $("auditRows").innerHTML = `<tr><td colspan="4" style="color:var(--dim)">${esc(e.message)}</td></tr>`;
   }
+}
+
+const SEV_RANK_LABEL = { info: "info+", warning: "warning+", critical: "critical only" };
+function maskTarget(t) {
+  // Show enough to identify, hide the rest (keys/URLs can be sensitive).
+  if (t.length <= 12) return t.slice(0, 4) + "…";
+  return t.slice(0, 10) + "…" + t.slice(-4);
+}
+async function loadRoutes(org) {
+  try {
+    const r = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/routes`);
+    const routes = r.routes || [];
+    $("routeRows").innerHTML = routes.map(rt =>
+      `<tr><td>${esc(rt.type)}</td>
+       <td style="font-family:var(--mono); font-size:12px">${esc(maskTarget(rt.target))}</td>
+       <td>${esc(SEV_RANK_LABEL[rt.min_severity] || rt.min_severity)}</td>
+       <td><button class="abtn danger" data-act="delRoute" data-id="${esc(rt.id)}">remove</button></td></tr>`
+    ).join("") || '<tr><td colspan="4" style="color:var(--dim)">no routes — alerts use the global config only</td></tr>';
+  } catch (e) {
+    $("routeRows").innerHTML = `<tr><td colspan="4" style="color:var(--dim)">${esc(e.message)}</td></tr>`;
+  }
+}
+async function addRoute() {
+  $("routeErr").textContent = "";
+  const org = $("adminOrgSelect").value;
+  const body = { type: $("routeType").value, target: $("routeTarget").value.trim(), min_severity: $("routeSeverity").value };
+  if (!body.target) { $("routeErr").textContent = "target is required"; return; }
+  try {
+    await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/routes`, body);
+    $("routeTarget").value = "";
+    loadRoutes(org);
+  } catch (e) { $("routeErr").textContent = e.message; }
+}
+async function deleteRoute(id) {
+  const org = $("adminOrgSelect").value;
+  if (!confirm("Remove this alert route?")) return;
+  try {
+    await del(`/api/v1/orgs/${encodeURIComponent(org)}/routes/${encodeURIComponent(id)}`);
+    loadRoutes(org);
+  } catch (e) { oops(e); }
 }
 
 async function saveFIM() {

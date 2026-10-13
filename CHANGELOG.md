@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.68.0] — 2026-10-13
+- Alert routing: per-org notification destinations (webhook, Slack, PagerDuty, Opsgenie), each with a minimum severity, additive to the collector's global webhook/Slack/email. Alerts fan out to every matching route — e.g. critical-only to PagerDuty, everything to Slack. PagerDuty uses Events API v2 (firing→trigger, resolved→resolve by dedup key); Opsgenie uses the Alerts API (create/close by alias). Managed per-org in Admin → Alert routing. `GET/POST/DELETE /api/v1/orgs/{id}/routes`. Webhook/Slack URLs are SSRF-guarded (same post-DNS IP policy as synthetic probes).
+
 ## [v0.67.0] — 2026-10-13
 - Synthetic / uptime monitoring: operator-configured active HTTP/TCP probes the collector runs on an interval (not passive agent telemetry). New "📡 Uptime checks" view shows up/down status, latency, and 24h uptime per check, with a probe-latency chart. A down probe raises a `synthetic-down` alert through the existing engine (notifications + SIEM). Probes are SSRF-guarded: each resolved IP is vetted post-DNS (rebinding-safe) — link-local/cloud-metadata blocked for all orgs, loopback/private only for Infrastructure orgs. `GET/POST/DELETE /api/v1/synthetic`.
 - Fix: server-generated alert rules (`service-error-rate`, `service-latency-p95`, `log-error-burst`, and the new `synthetic-down`) are now exempt from orphaned-alert cleanup, which previously flapped them resolved→firing every 15s.

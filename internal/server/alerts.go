@@ -253,7 +253,7 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 			return
 		}
 		s.log.Warn("ALERT firing", "rule", rule, "endpoint", ep.Hostname, "message", message)
-		s.notify("firing", rule, ep.Hostname, message)
+		s.notify(ep.OrgID, alertSeverity("firing", rule), "firing", rule, ep.Hostname, message)
 		s.siemForward(ep.OrgID, ep.Hostname, "alert:"+rule, "WARNING", "", message)
 	case !breaching && openID != 0:
 		if err := s.store.ResolveAlert(ctx, openID); err != nil {
@@ -262,28 +262,30 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 		}
 		msg := fmt.Sprintf("%s: %s resolved", ep.Hostname, rule)
 		s.log.Info("alert resolved", "rule", rule, "endpoint", ep.Hostname)
-		s.notify("resolved", rule, ep.Hostname, msg)
+		s.notify(ep.OrgID, model.SevInfo, "resolved", rule, ep.Hostname, msg)
 		s.siemForward(ep.OrgID, ep.Hostname, "alert_resolved:"+rule, "INFO", "", msg)
 	}
 }
 
 // notifyEvents forwards security events of configured types the moment they
 // are ingested.
-func (s *Server) notifyEvents(hostname string, events []model.Event) {
+func (s *Server) notifyEvents(orgID, hostname string, events []model.Event) {
 	for _, ev := range events {
 		if s.cfg.NotifyEventTypes[ev.Type] {
-			s.notify("event", ev.Type, hostname, ev.Message)
+			s.notify(orgID, eventSeverity(ev.Type), "event", ev.Type, hostname, ev.Message)
 		}
 	}
 }
 
 // ---- notification transports ----
 
-func (s *Server) notify(state, rule, hostname, message string) {
+func (s *Server) notify(orgID, severity, state, rule, hostname, message string) {
 	text := fmt.Sprintf("[varro] %s · %s · %s — %s", strings.ToUpper(state), rule, hostname, message)
+	// Global destinations (operator config) apply to every org.
 	if s.cfg.WebhookURL != "" {
 		go s.postJSON(s.cfg.WebhookURL, map[string]string{
 			"state": state, "rule": rule, "hostname": hostname, "message": message,
+			"org": orgID, "severity": severity,
 		})
 	}
 	if s.cfg.SlackWebhookURL != "" {
@@ -292,6 +294,8 @@ func (s *Server) notify(state, rule, hostname, message string) {
 	if s.mailEnabled() && len(s.cfg.SMTP.To) > 0 {
 		go s.sendMail(text)
 	}
+	// Per-org routes (severity-filtered), additive to the global destinations.
+	s.dispatchRoutes(orgID, severity, state, rule, hostname, message)
 }
 
 func (s *Server) postJSON(url string, payload any) {

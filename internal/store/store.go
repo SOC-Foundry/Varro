@@ -143,6 +143,16 @@ CREATE TABLE IF NOT EXISTS probe_results (
 );
 CREATE INDEX IF NOT EXISTS idx_probe_results_check_ts ON probe_results(check_id, ts);
 CREATE INDEX IF NOT EXISTS idx_probe_results_org_ts ON probe_results(org_id, ts);
+CREATE TABLE IF NOT EXISTS notify_routes (
+	id           TEXT PRIMARY KEY,
+	org_id       TEXT NOT NULL,
+	type         TEXT NOT NULL,
+	target       TEXT NOT NULL,
+	min_severity TEXT NOT NULL DEFAULT 'warning',
+	enabled      INTEGER NOT NULL DEFAULT 1,
+	created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notify_routes_org ON notify_routes(org_id);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,

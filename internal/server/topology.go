@@ -154,7 +154,7 @@ func (s *Server) correlateEdges(r *http.Request, orgID string, snap *model.Snaps
 			if err := s.store.InsertServerEvent(r.Context(), orgID, snap.AgentID,
 				model.EventConnNewInternal, msg); err == nil {
 				s.log.Info("topology edge discovered", "msg", msg)
-				s.notifyEvents(snap.Hostname, []model.Event{{Type: model.EventConnNewInternal, Message: msg}})
+				s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventConnNewInternal, Message: msg}})
 			}
 		}
 	}
