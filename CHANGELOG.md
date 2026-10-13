@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.71.0] — 2026-10-13
+- Dashboard navigation redesign: the sidebar is now a proper grouped "Explore" menu — a cohesive set of monochrome line icons (replacing the mixed emoji), neutral text with hover + active states, an active indicator that tracks the current view, and no more per-row dividers. A cleaner, more professional look.
+
 ## [v0.70.0] — 2026-10-13
 - Postgres automatic failover (pg_auto_failover): a monitor node (`varro-pg-mon`) arbitrates the primary (`varro-pg`) / secondary (`varro-pg-2`) pair and auto-promotes the standby on primary failure — lossless (synchronous `quorum` replication) and with no human action. Collectors now use a multi-host `target_session_attrs=read-write` DSN that transparently follows the primary, so failover needs no config change. Replaces the manual promote+repoint runbook ([docs/postgres-ha.md](docs/postgres-ha.md)). Verified end-to-end — controlled switchover and a primary-restart drill were both ridden automatically (health 200 throughout, zero data loss, old primary rejoined as a healthy secondary). Runbook: [docs/postgres-autofailover.md](docs/postgres-autofailover.md). (Infra + docs; no agent/binary change — collectors remain on v0.69.0.)
 
