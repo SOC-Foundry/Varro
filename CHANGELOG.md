@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.79.0] — 2026-10-13
+- Incident management: related alerts and detections for the same endpoint now auto-group into an incident (2-hour correlation window) with a rolled-up severity, a timeline, a status (open → acknowledged → resolved), and an assignee. A new "🚨 Incidents" view triages them — ack, assign, resolve, add notes — with the full timeline of every signal and action. API: `GET /api/v1/incidents` + `/{id}` and `POST /{id}/ack|assign|resolve|note`.
+
 ## [v0.78.0] — 2026-10-13
 - Security hardening (from a focused review of the v0.67–v0.77 surface; no high-severity issues found): the synthetic-probe / webhook SSRF guard now also blocks CGNAT (`100.64.0.0/10`) and reserved ranges (`192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`) for non-infrastructure orgs — `net.IP.IsPrivate()` missed these. And webhook/Slack delivery-failure logs now redact the URL to scheme+host so path-embedded secrets never reach the logs.
 

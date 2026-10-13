@@ -559,6 +559,40 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Incident statuses.
+const (
+	IncidentOpen     = "open"
+	IncidentAck      = "acknowledged"
+	IncidentResolved = "resolved"
+)
+
+// Incident groups related alerts + detections for one endpoint into a single
+// triage unit with a timeline, status, and owner.
+type Incident struct {
+	ID         int64          `json:"id"`
+	OrgID      string         `json:"org_id"`
+	EndpointID string         `json:"endpoint_id"`
+	Hostname   string         `json:"hostname"`
+	Title      string         `json:"title"`
+	Status     string         `json:"status"`
+	Severity   string         `json:"severity"` // CRITICAL|HIGH|MEDIUM|LOW (max over items)
+	Assignee   string         `json:"assignee,omitempty"`
+	ItemCount  int            `json:"item_count"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
+	Items      []IncidentItem `json:"items,omitempty"` // timeline, only on detail
+}
+
+// IncidentItem is one entry on an incident's timeline.
+type IncidentItem struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"ts"`
+	Kind      string    `json:"kind"` // alert|detection|note|status
+	Actor     string    `json:"actor,omitempty"`
+	Message   string    `json:"message"`
+}
+
 // Playbook is an automated response: when a detection fires matching its
 // criteria, Varro runs Action against the affected endpoint (SOAR-lite).
 type Playbook struct {

@@ -167,6 +167,7 @@
     <a href="#" id="flowsLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>Flows &amp; talkers</a>
     <a href="#" id="logsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h11"/></svg>Logs</a>
     <a href="#" id="huntLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Threat hunt</a>
+    <a href="#" id="incidentsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.5"/></svg>Incidents</a>
     <a href="#" id="reportLink" class="navitem"><svg viewBox="0 0 24 24"><rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5h6v2.5H9z"/><path d="M8.8 13l2.2 2.2 4.2-4.6"/></svg>Compliance report</a>
     <a href="#" id="priorityLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.3"/></svg>Priority fixes</a>
     <a href="#" id="metricsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M4 5v15h15"/><path d="M7 15l3.2-4 3 2 4.2-6"/></svg>Metric explorer</a>
@@ -435,6 +436,25 @@
         </tr></thead>
         <tbody id="huntRows"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div id="incidentsView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Incidents</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">related alerts &amp; detections, grouped per endpoint</span>
+      <a href="#" id="incidentsBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <span id="incStatusFilter" style="display:flex; gap:4px"></span>
+    </header>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start">
+      <div class="card" style="flex:2; min-width:360px; overflow-x:auto; max-height:72vh; overflow-y:auto; padding:0">
+        <table style="width:100%; min-width:520px">
+          <thead><tr><th style="width:90px">Severity</th><th style="width:90px">Status</th><th>Title</th><th>Host</th><th class="num" style="width:50px">Items</th><th style="width:150px">Updated</th></tr></thead>
+          <tbody id="incidentRows"></tbody>
+        </table>
+      </div>
+      <div class="card" id="incidentDetail" style="flex:1; min-width:300px; display:none; max-height:72vh; overflow-y:auto"></div>
     </div>
   </div>
 
@@ -964,7 +984,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode || huntMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode || huntMode || incidentsMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) { $("detail").style.display = eps.length && selected ? "block" : "none"; setActiveNav(null); }
 }
@@ -1310,6 +1330,7 @@ function showAdmin(on) {
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
   if (on && huntMode) { hideHunt(); }
+  if (on && incidentsMode) { hideIncidents(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1630,6 +1651,7 @@ function showDownload(on) {
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
   if (on && huntMode) { hideHunt(); }
+  if (on && incidentsMode) { hideIncidents(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1662,6 +1684,7 @@ function showReport(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1905,6 +1928,7 @@ function showFlows(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2100,6 +2124,7 @@ function showLogs(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2297,6 +2322,115 @@ async function deleteHunt() {
   catch (e) { oops(e); }
 }
 
+/* ---- incidents view ---- */
+let incidentsMode = false, incStatus = "", incSelected = null;
+const INC_SEV_COLOR = { CRITICAL: "var(--red)", HIGH: "var(--amber)", MEDIUM: "var(--accent)", LOW: "var(--dim)" };
+const INC_STATUS_COLOR = { open: "var(--red)", acknowledged: "var(--amber)", resolved: "var(--green)" };
+$("incidentsLink").onclick = e => { e.preventDefault(); closeSidebar(); showIncidents(true); };
+$("incidentsBack").onclick = e => { e.preventDefault(); showIncidents(false); };
+
+function hideIncidents() { incidentsMode = false; $("incidentsView").style.display = "none"; }
+
+function showIncidents(on) {
+  incidentsMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
+    if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
+    if (dashboardsMode) hideDashboards();
+    if (huntMode) hideHunt();
+    incidentsMode = true;
+    $("incidentsView").style.display = "block";
+    $("detail").style.display = "none";
+    $("incidentDetail").style.display = "none"; incSelected = null;
+    setupIncStatusFilter();
+    loadIncidents();
+  } else {
+    hideIncidents();
+    refreshEndpoints();
+  }
+}
+
+function setupIncStatusFilter() {
+  const box = $("incStatusFilter"); box.innerHTML = "";
+  for (const [label, v] of [["all", ""], ["open", "open"], ["ack", "acknowledged"], ["resolved", "resolved"]]) {
+    const b = document.createElement("button"); b.className = "abtn"; b.textContent = label;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (v === incStatus ? ";color:var(--accent);border-color:var(--accent)" : "");
+    b.onclick = () => { incStatus = v; setupIncStatusFilter(); loadIncidents(); };
+    box.appendChild(b);
+  }
+}
+
+async function loadIncidents() {
+  try {
+    const r = await getJSON(orgQ("/api/v1/incidents" + (incStatus ? "?status=" + incStatus : "")));
+    const rows = r.incidents || [];
+    const tb = $("incidentRows");
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="6" style="color:var(--dim)">no incidents</td></tr>`; return; }
+    tb.innerHTML = rows.map(i => `<tr data-id="${i.id}" style="cursor:pointer${incSelected === i.id ? ";background:#1c2740" : ""}">
+      <td style="color:${INC_SEV_COLOR[i.severity] || "var(--dim)"}; font-weight:600">${esc(i.severity)}</td>
+      <td style="color:${INC_STATUS_COLOR[i.status] || "var(--dim)"}">${esc(i.status)}</td>
+      <td>${esc(i.title)}</td>
+      <td style="font-family:var(--mono)">${esc(i.hostname || i.endpoint_id)}</td>
+      <td class="num">${i.item_count}</td>
+      <td style="font-family:var(--mono); color:var(--dim); font-size:12px">${esc(new Date(i.updated_at).toLocaleString())}</td>
+    </tr>`).join("");
+    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => openIncident(parseInt(tr.getAttribute("data-id"), 10)));
+  } catch (e) { $("incidentRows").innerHTML = `<tr><td colspan="6" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+async function openIncident(id) {
+  incSelected = id;
+  loadIncidents();
+  try {
+    const inc = await getJSON(orgQ(`/api/v1/incidents/${id}`));
+    const timeline = (inc.items || []).map(it => {
+      const t = new Date(it.ts).toLocaleString();
+      const kindCol = it.kind === "detection" ? "var(--red)" : it.kind === "alert" ? "var(--amber)" : it.kind === "note" ? "var(--accent)" : "var(--dim)";
+      return `<div style="padding:5px 0; border-bottom:1px solid #1c2128">
+        <div style="font-size:11px; color:var(--dim); font-family:var(--mono)">${esc(t)} · <span style="color:${kindCol}">${esc(it.kind)}</span>${it.actor ? " · " + esc(it.actor) : ""}</div>
+        <div style="font-family:var(--mono); font-size:12px; white-space:pre-wrap; word-break:break-word">${esc(it.message)}</div></div>`;
+    }).join("");
+    const resolved = inc.status === "resolved";
+    $("incidentDetail").style.display = "block";
+    $("incidentDetail").innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px">
+        <h3 style="margin:0">${esc(inc.title)}</h3>
+        <button class="abtn danger" id="incClose" style="padding:1px 8px">✕</button>
+      </div>
+      <div style="font-size:12px; color:var(--dim); margin-bottom:8px">
+        <span style="color:${INC_SEV_COLOR[inc.severity]}">${esc(inc.severity)}</span> ·
+        <span style="color:${INC_STATUS_COLOR[inc.status]}">${esc(inc.status)}</span> ·
+        ${esc(inc.hostname || inc.endpoint_id)}${inc.assignee ? " · 👤 " + esc(inc.assignee) : ""}</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px">
+        ${resolved ? "" : `<button class="abtn" id="incAck" style="font-size:12px;padding:3px 10px">Ack</button>`}
+        <button class="abtn" id="incAssign" style="font-size:12px;padding:3px 10px">Assign</button>
+        ${resolved ? `<button class="abtn" id="incReopen" style="font-size:12px;padding:3px 10px">Reopen</button>` : `<button class="abtn" id="incResolve" style="font-size:12px;padding:3px 10px;color:var(--green)">Resolve</button>`}
+      </div>
+      <div style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px">Timeline</div>
+      ${timeline || '<div style="color:var(--dim); font-size:12px">no timeline items</div>'}
+      <div style="display:flex; gap:6px; margin-top:10px">
+        <input id="incNote" placeholder="add a note…" style="flex:1; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px">
+        <button class="abtn" id="incNoteBtn" style="font-size:12px;padding:3px 10px">Add</button>
+      </div>`;
+    $("incClose").onclick = () => { incSelected = null; $("incidentDetail").style.display = "none"; loadIncidents(); };
+    const act = async (path, body) => { try { await postJSON(orgQ(`/api/v1/incidents/${id}/${path}`), body || {}); openIncident(id); } catch (e) { oops(e); } };
+    if ($("incAck")) $("incAck").onclick = () => act("ack");
+    if ($("incResolve")) $("incResolve").onclick = () => act("resolve");
+    if ($("incReopen")) $("incReopen").onclick = () => act("ack");
+    $("incAssign").onclick = () => { const who = prompt("Assign to (email, blank to clear):", inc.assignee || ""); if (who !== null) act("assign", { assignee: who.trim() }); };
+    $("incNoteBtn").onclick = () => { const n = $("incNote").value.trim(); if (n) act("note", { note: n }); };
+  } catch (e) { oops(e); }
+}
+
 /* ---- priority fixes view ---- */
 let priorityMode = false, priorityData = [];
 $("priorityLink").onclick = e => { e.preventDefault(); closeSidebar(); showPriority(true); };
@@ -2321,6 +2455,7 @@ function showPriority(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     priorityMode = true;
     $("priorityView").style.display = "block";
     $("detail").style.display = "none";
@@ -2410,6 +2545,7 @@ function showMetrics(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     metricsMode = true;
     $("metricsView").style.display = "block";
     $("detail").style.display = "none";
@@ -2711,6 +2847,7 @@ function showOtlp(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     otlpMode = true;
     $("otlpView").style.display = "block";
     $("detail").style.display = "none";
@@ -2790,6 +2927,7 @@ function showTraces(on) {
     if (syntheticMode) hideSynthetic();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     tracesMode = true;
     $("tracesView").style.display = "block";
     $("detail").style.display = "none";
@@ -2921,6 +3059,7 @@ function showSynthetic(on) {
     if (tracesMode) hideTraces();
     if (dashboardsMode) hideDashboards();
     if (huntMode) hideHunt();
+    if (incidentsMode) hideIncidents();
     syntheticMode = true;
     $("syntheticView").style.display = "block";
     $("detail").style.display = "none";
@@ -3086,6 +3225,7 @@ function showTopo(on) {
   if (on && syntheticMode) { hideSynthetic(); }
   if (on && dashboardsMode) { hideDashboards(); }
   if (on && huntMode) { hideHunt(); }
+  if (on && incidentsMode) { hideIncidents(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";

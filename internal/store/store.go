@@ -231,6 +231,30 @@ CREATE TABLE IF NOT EXISTS silences (
 	created_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_silences_org ON silences(org_id);
+CREATE TABLE IF NOT EXISTS incidents (
+	id          INTEGER PRIMARY KEY,
+	org_id      TEXT NOT NULL,
+	endpoint_id TEXT NOT NULL,
+	hostname    TEXT NOT NULL DEFAULT '',
+	title       TEXT NOT NULL DEFAULT '',
+	status      TEXT NOT NULL DEFAULT 'open',
+	severity    TEXT NOT NULL DEFAULT 'MEDIUM',
+	assignee    TEXT NOT NULL DEFAULT '',
+	created_at  INTEGER NOT NULL,
+	updated_at  INTEGER NOT NULL,
+	resolved_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_org_status ON incidents(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_incidents_open ON incidents(org_id, endpoint_id) WHERE status != 'resolved';
+CREATE TABLE IF NOT EXISTS incident_items (
+	id          INTEGER PRIMARY KEY,
+	incident_id INTEGER NOT NULL,
+	ts          INTEGER NOT NULL,
+	kind        TEXT NOT NULL,
+	actor       TEXT NOT NULL DEFAULT '',
+	message     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_incident_items ON incident_items(incident_id, id);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,
