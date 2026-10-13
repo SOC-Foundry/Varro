@@ -298,6 +298,11 @@ func (s *Server) pruneLoop(ctx context.Context) {
 			if !s.isLeader() {
 				continue
 			}
+			// Fold raw samples into hourly rollups before pruning them, so
+			// long-range history survives past the raw retention window.
+			if err := s.store.RollupSamples(ctx, time.Now().Add(-s.cfg.Retention)); err != nil {
+				s.log.Error("sample rollup failed", "error", err)
+			}
 			n, err := s.store.Prune(ctx, s.cfg.Retention, s.cfg.EventRetention)
 			if err != nil {
 				s.log.Error("prune failed", "error", err)

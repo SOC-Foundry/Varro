@@ -90,6 +90,21 @@ CREATE TABLE IF NOT EXISTS samples (
 );
 CREATE INDEX IF NOT EXISTS idx_samples_endpoint_ts ON samples(endpoint_id, ts);
 CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts);
+CREATE TABLE IF NOT EXISTS sample_rollups (
+	endpoint_id  TEXT NOT NULL,
+	bucket       INTEGER NOT NULL,
+	cpu_pct      REAL NOT NULL DEFAULT 0,
+	mem_pct      REAL NOT NULL DEFAULT 0,
+	mem_used     REAL NOT NULL DEFAULT 0,
+	rx_rate      REAL NOT NULL DEFAULT 0,
+	tx_rate      REAL NOT NULL DEFAULT 0,
+	disk_pct     REAL NOT NULL DEFAULT 0,
+	max_temp     REAL NOT NULL DEFAULT 0,
+	io_read_bps  REAL NOT NULL DEFAULT 0,
+	io_write_bps REAL NOT NULL DEFAULT 0,
+	PRIMARY KEY (endpoint_id, bucket)
+);
+CREATE INDEX IF NOT EXISTS idx_sample_rollups_bucket ON sample_rollups(bucket);
 CREATE TABLE IF NOT EXISTS events (
 	id          INTEGER PRIMARY KEY,
 	endpoint_id TEXT NOT NULL,
@@ -731,6 +746,14 @@ func (s *Store) Latest(ctx context.Context, endpointID string) (*model.Snapshot,
 
 // History returns averaged points bucketed to stepSeconds over [from, to].
 func (s *Store) History(ctx context.Context, endpointID string, from, to time.Time, stepSeconds int) ([]model.HistoryPoint, error) {
+	// Long windows exceed raw retention — serve hourly rollups so the chart
+	// extends past the raw-sample horizon. Fall back to raw when no rollup data
+	// exists for the range yet (e.g. right after deploy, before the first roll).
+	if to.Sub(from) > rawHistoryHorizon {
+		if pts, err := s.historyFromRollups(ctx, endpointID, from, to); err == nil && len(pts) > 0 {
+			return pts, nil
+		}
+	}
 	if stepSeconds < 1 {
 		stepSeconds = 1
 	}
@@ -796,6 +819,12 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 	// Probe results are high-volume (one row per check per interval); keep them
 	// on the short (sample) retention. Check configs persist.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM probe_results WHERE ts < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	// Rollups are small; keep them far longer than raw samples (90 days) for
+	// long-range history.
+	rollupCut := time.Now().Add(-90 * 24 * time.Hour).Unix()
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM sample_rollups WHERE bucket < ?`, rollupCut); err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)

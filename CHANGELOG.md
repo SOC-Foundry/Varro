@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.77.0] — 2026-10-13
+- Retention rollups: raw samples (kept ~72h) are folded into hourly per-endpoint averages before pruning and retained for 90 days. History and metric-explorer queries spanning more than ~36h transparently read the rollups, so 7-day (and longer) charts show real history instead of flat-lining past the raw window — without unbounded DB growth. Fully transparent to the UI (falls back to raw until the first rollup runs). New `sample_rollups` table; rollup runs each prune cycle (leader-only).
+
 ## [v0.76.0] — 2026-10-13
 - Auto-response (SOAR-lite): playbooks that automatically network-isolate an endpoint the moment a detection fires matching a severity/rule filter — contained in seconds with no human in the loop (and won't re-isolate an already-contained host). Managed in Admin → Auto-response playbooks. `GET/POST/PUT/DELETE /api/v1/orgs/{id}/playbooks`.
 - Alert silences / maintenance windows: suppress alert notifications (the alert is still recorded) for matching rule/endpoint until the window expires, so planned work doesn't page. Admin → Alert silences. `GET/POST/DELETE /api/v1/orgs/{id}/silences`.
