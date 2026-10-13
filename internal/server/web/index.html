@@ -2017,7 +2017,7 @@ function downloadPriorityCsv() {
 
 /* ---- metric explorer view ---- */
 let metricsMode = false, metricWindow = 60, metricHostSel = new Set(), metricEndpoints = [], currentViewName = "";
-let tempUnit = localStorage.getItem("varroTempUnit") || "C";
+let tempUnit = localStorage.getItem("varroTempUnit") || "F";
 const SERIES_COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf", "#ff7b72", "#e3b341", "#79c0ff", "#56d364"];
 const RATE_METRICS = new Set(["rx_rate_bps", "tx_rate_bps", "io_read_bps", "io_write_bps"]);
 

@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.73.0] — 2026-10-13
+- Temperature now defaults to °F (the metric explorer's °C/°F toggle still switches, and an explicit prior choice is preserved).
+
 ## [v0.72.0] — 2026-10-13
 - Interactive charts: hovering any time-series chart (metric explorer, host detail, dashboards, synthetic latency, traces) now shows a crosshair plus a tooltip with the exact timestamp and each series' value + host at that point. Works everywhere `drawChart` is used.
 - Temperature unit toggle: the metric explorer's Temperature view has a °C / °F switch (remembered per browser via localStorage); the axis and tooltip follow the chosen unit.
