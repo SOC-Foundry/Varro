@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.72.0] — 2026-10-13
+- Interactive charts: hovering any time-series chart (metric explorer, host detail, dashboards, synthetic latency, traces) now shows a crosshair plus a tooltip with the exact timestamp and each series' value + host at that point. Works everywhere `drawChart` is used.
+- Temperature unit toggle: the metric explorer's Temperature view has a °C / °F switch (remembered per browser via localStorage); the axis and tooltip follow the chosen unit.
+
 ## [v0.71.0] — 2026-10-13
 - Dashboard navigation redesign: the sidebar is now a proper grouped "Explore" menu — a cohesive set of monochrome line icons (replacing the mixed emoji), neutral text with hover + active states, an active indicator that tracks the current view, and no more per-row dividers. A cleaner, more professional look.
 

@@ -62,6 +62,15 @@
   .card h3 { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; display: flex; justify-content: space-between; }
   .card h3 .now { color: var(--text); font-family: var(--mono); }
   canvas { width: 100%; height: 150px; display: block; }
+  .chart-tip {
+    position: fixed; z-index: 50; pointer-events: none; display: none;
+    background: rgba(13,17,23,.95); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 9px; font-size: 11.5px; font-family: var(--mono); color: var(--text);
+    box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  }
+  .chart-tip-t { color: var(--dim); margin-bottom: 3px; }
+  .chart-tip-r { display: flex; align-items: center; gap: 6px; line-height: 1.5; white-space: nowrap; }
+  .chart-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .wide { grid-column: 1 / -1; }
   /* disk bars */
   .disk { margin: 8px 0; }
@@ -433,9 +442,13 @@
         <option value="tx_rate_bps">Net TX (bps)</option>
         <option value="io_read_bps">Disk read (bps)</option>
         <option value="io_write_bps">Disk write (bps)</option>
-        <option value="max_temp_c">Max temp °C</option>
+        <option value="max_temp_c">Temperature</option>
       </select>
       <span id="metricsRanges" style="display:flex; gap:4px"></span>
+      <span id="tempUnit" style="display:none; gap:4px">
+        <button class="abtn tu" data-u="C" style="font-size:12px;padding:3px 9px">°C</button>
+        <button class="abtn tu" data-u="F" style="font-size:12px;padding:3px 9px">°F</button>
+      </span>
       <span style="flex:1"></span>
       <select id="savedViewPick" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="">saved views…</option></select>
       <button class="abtn" id="saveViewBtn" style="color:var(--accent)">💾 Save view</button>
@@ -751,60 +764,104 @@ document.addEventListener("click", ev => {
   }
 });
 
-/* ---- minimal line chart on canvas ---- */
+/* ---- interactive line chart on canvas ---- */
+const _mono = () => getComputedStyle(document.body).getPropertyValue("--mono");
 function drawChart(canvas, series, opts = {}) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
   canvas.width = w * dpr; canvas.height = h * dpr;
   const ctx = canvas.getContext("2d");
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const pad = { l: 42, r: 6, t: 6, b: 16 };
   const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
   const all = series.flatMap(s => s.data.map(p => p.v));
-  if (!all.length) { ctx.fillStyle = "#8b949e"; ctx.fillText("no data", w/2-20, h/2); return; }
-
+  if (!all.length) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#8b949e"; ctx.font = "11px " + _mono(); ctx.fillText("no data", w/2-20, h/2);
+    canvas._chart = null; return;
+  }
   let max = opts.max ?? Math.max(...all) * 1.15;
   if (max <= 0) max = 1;
   const tMin = Math.min(...series.flatMap(s => s.data.map(p => p.t)));
   const tMax = Math.max(...series.flatMap(s => s.data.map(p => p.t)));
   const x = t => pad.l + (tMax === tMin ? 0 : (t - tMin) / (tMax - tMin)) * pw;
   const y = v => pad.t + ph - Math.min(v / max, 1) * ph;
+  const fmt = opts.fmt || (v => v.toFixed(0));
 
-  ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
-  for (let i = 0; i <= 4; i++) {
-    const v = max * i / 4, yy = y(v);
-    ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
-    ctx.fillText(opts.fmt ? opts.fmt(v) : v.toFixed(0), 2, yy + 3);
-  }
-  const t0 = new Date(tMin * 1000), t1 = new Date(tMax * 1000);
-  const hm = d => d.toTimeString().slice(0, 5);
-  ctx.fillText(hm(t0), pad.l, h - 4);
-  ctx.fillText(hm(t1), w - pad.r - 30, h - 4);
-
-  for (const s of series) {
-    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
-    s.data.forEach((p, i) => i ? ctx.lineTo(x(p.t), y(p.v)) : ctx.moveTo(x(p.t), y(p.v)));
-    ctx.stroke();
-    if (s.fill) {
-      ctx.lineTo(x(s.data[s.data.length-1].t), y(0)); ctx.lineTo(x(s.data[0].t), y(0));
-      ctx.closePath(); ctx.fillStyle = s.color + "22"; ctx.fill();
+  function paint() {
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = "#21262d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px " + _mono();
+    for (let i = 0; i <= 4; i++) {
+      const v = max * i / 4, yy = y(v);
+      ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
+      ctx.fillText(fmt(v), 2, yy + 3);
+    }
+    const hm = d => d.toTimeString().slice(0, 5);
+    ctx.fillText(hm(new Date(tMin * 1000)), pad.l, h - 4);
+    ctx.fillText(hm(new Date(tMax * 1000)), w - pad.r - 30, h - 4);
+    for (const s of series) {
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
+      s.data.forEach((p, i) => i ? ctx.lineTo(x(p.t), y(p.v)) : ctx.moveTo(x(p.t), y(p.v)));
+      ctx.stroke();
+      if (s.fill) {
+        ctx.lineTo(x(s.data[s.data.length-1].t), y(0)); ctx.lineTo(x(s.data[0].t), y(0));
+        ctx.closePath(); ctx.fillStyle = s.color + "22"; ctx.fill();
+      }
+    }
+    for (const m of (opts.markers || [])) {
+      if (m.t < tMin || m.t > tMax) continue;
+      const mx = x(m.t);
+      ctx.strokeStyle = m.color || "#bc8cff"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(mx, pad.t); ctx.lineTo(mx, pad.t + ph); ctx.stroke(); ctx.setLineDash([]);
+      if (m.label) {
+        ctx.save(); ctx.translate(mx + 3, pad.t + 4); ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = m.color || "#bc8cff"; ctx.font = "9px " + _mono(); ctx.fillText(m.label, 0, 0); ctx.restore();
+      }
     }
   }
-  // Vertical markers (e.g. CI/CD deploys) for correlation.
-  for (const m of (opts.markers || [])) {
-    if (m.t < tMin || m.t > tMax) continue;
-    const mx = x(m.t);
-    ctx.strokeStyle = m.color || "#bc8cff"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(mx, pad.t); ctx.lineTo(mx, pad.t + ph); ctx.stroke();
-    ctx.setLineDash([]);
-    if (m.label) {
-      ctx.save(); ctx.translate(mx + 3, pad.t + 4); ctx.rotate(Math.PI / 2);
-      ctx.fillStyle = m.color || "#bc8cff"; ctx.font = "9px " + getComputedStyle(document.body).getPropertyValue("--mono");
-      ctx.fillText(m.label, 0, 0); ctx.restore();
+  paint();
+  canvas._chart = { series, x, y, tMin, tMax, pad, pw, ph, w, h, fmt, paint, ctx };
+  bindChartHover(canvas);
+}
+
+// bindChartHover adds a crosshair + value tooltip to a chart canvas (once).
+function bindChartHover(canvas) {
+  if (canvas._hoverBound) return;
+  canvas._hoverBound = true;
+  canvas.style.cursor = "crosshair";
+  const tip = document.createElement("div");
+  tip.className = "chart-tip";
+  document.body.appendChild(tip);
+  const hide = () => { tip.style.display = "none"; const c = canvas._chart; if (c) c.paint(); };
+  canvas.addEventListener("mouseleave", hide);
+  canvas.addEventListener("mousemove", e => {
+    const c = canvas._chart;
+    if (!c) { tip.style.display = "none"; return; }
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    if (mx < c.pad.l || mx > c.w - c.pad.r) { tip.style.display = "none"; c.paint(); return; }
+    const t = c.tMin + (c.tMax === c.tMin ? 0 : (mx - c.pad.l) / c.pw * (c.tMax - c.tMin));
+    c.paint();
+    const ctx = c.ctx;
+    ctx.strokeStyle = "rgba(139,148,158,.5)"; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(mx, c.pad.t); ctx.lineTo(mx, c.pad.t + c.ph); ctx.stroke(); ctx.setLineDash([]);
+    const rows = [];
+    for (const s of c.series) {
+      if (!s.data.length) continue;
+      let best = s.data[0], bd = Math.abs(s.data[0].t - t);
+      for (const p of s.data) { const d = Math.abs(p.t - t); if (d < bd) { bd = d; best = p; } }
+      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(c.x(best.t), c.y(best.v), 3, 0, Math.PI * 2); ctx.fill();
+      rows.push({ color: s.color, label: s.label, v: best.v });
     }
-  }
+    tip.innerHTML = `<div class="chart-tip-t">${esc(new Date(t * 1000).toLocaleTimeString())}</div>` +
+      rows.map(r => `<div class="chart-tip-r"><span class="chart-tip-dot" style="background:${r.color}"></span>${r.label ? esc(r.label) + " " : ""}<b>${esc(c.fmt(r.v))}</b></div>`).join("");
+    tip.style.display = "block";
+    let left = e.clientX + 14, top = e.clientY + 12;
+    if (left + tip.offsetWidth > window.innerWidth - 8) left = e.clientX - tip.offsetWidth - 14;
+    if (top + tip.offsetHeight > window.innerHeight - 8) top = e.clientY - tip.offsetHeight - 12;
+    tip.style.left = left + "px"; tip.style.top = top + "px";
+  });
 }
 
 /* ---- data loading ---- */
@@ -1960,12 +2017,18 @@ function downloadPriorityCsv() {
 
 /* ---- metric explorer view ---- */
 let metricsMode = false, metricWindow = 60, metricHostSel = new Set(), metricEndpoints = [], currentViewName = "";
+let tempUnit = localStorage.getItem("varroTempUnit") || "C";
 const SERIES_COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf", "#ff7b72", "#e3b341", "#79c0ff", "#56d364"];
 const RATE_METRICS = new Set(["rx_rate_bps", "tx_rate_bps", "io_read_bps", "io_write_bps"]);
 
 $("metricsLink").onclick = e => { e.preventDefault(); closeSidebar(); showMetrics(true); };
 $("metricsBack").onclick = e => { e.preventDefault(); showMetrics(false); };
 $("metricPick").onchange = () => loadMetricSeries();
+document.querySelectorAll("#tempUnit .tu").forEach(b => b.onclick = () => {
+  tempUnit = b.dataset.u; localStorage.setItem("varroTempUnit", tempUnit);
+  renderTempUnit(); loadMetricSeries();
+});
+renderTempUnit();
 $("saveViewBtn").onclick = () => saveCurrentView();
 $("deleteViewBtn").onclick = () => deleteCurrentView();
 $("savedViewPick").onchange = () => applySavedView($("savedViewPick").value);
@@ -2036,19 +2099,33 @@ function renderMetricHosts() {
 async function loadMetricSeries() {
   const metric = $("metricPick").value;
   const ids = [...metricHostSel];
+  $("tempUnit").style.display = metric === "max_temp_c" ? "flex" : "none";
   if (!ids.length) { drawChart($("metricChart"), []); $("metricsLegend").textContent = "select one or more hosts"; return; }
   try {
     const r = await getJSON(orgQ(`/api/v1/metrics/series?metric=${metric}&minutes=${metricWindow}&endpoints=${ids.map(encodeURIComponent).join(",")}`));
+    const isRate = RATE_METRICS.has(metric);
+    const toF = metric === "max_temp_c" && tempUnit === "F";
+    const conv = v => toF ? v * 9 / 5 + 32 : v;
     const series = (r.series || []).map((s, i) => ({
       color: SERIES_COLORS[i % SERIES_COLORS.length],
-      data: s.points.map(p => ({ t: p[0], v: p[1] })),
+      label: s.hostname,
+      data: s.points.map(p => ({ t: p[0], v: conv(p[1]) })),
     }));
-    const isRate = RATE_METRICS.has(metric);
-    drawChart($("metricChart"), series, { fmt: v => isRate ? fmtBytes(v, "") + "/s" : v.toFixed(v < 10 ? 1 : 0), markers: await loadDeployMarkers() });
+    const fmt = metric === "max_temp_c"
+      ? (v => v.toFixed(0) + "°" + (toF ? "F" : "C"))
+      : (v => isRate ? fmtBytes(v, "") + "/s" : v.toFixed(v < 10 ? 1 : 0));
+    drawChart($("metricChart"), series, { fmt, markers: await loadDeployMarkers() });
     $("metricsLegend").innerHTML = (r.series || []).map((s, i) =>
       `<span style="color:${SERIES_COLORS[i % SERIES_COLORS.length]}">● ${esc(s.hostname)}</span>`).join("  ") ||
       `<span style="color:var(--dim)">no samples in window</span>`;
   } catch (e) { $("metricsLegend").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+
+function renderTempUnit() {
+  document.querySelectorAll("#tempUnit .tu").forEach(b => {
+    const on = b.dataset.u === tempUnit;
+    b.style.cssText = "font-size:12px;padding:3px 9px" + (on ? ";color:var(--accent);border-color:var(--accent)" : "");
+  });
 }
 
 // loadDeployMarkers pulls recent CI/CD events to overlay as deploy markers on
