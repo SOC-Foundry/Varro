@@ -559,6 +559,55 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Detection-rule streams (what a custom rule matches against) and the fields
+// available on each.
+const (
+	DetStreamProcess    = "process"    // fields: image, command, user
+	DetStreamConnection = "connection" // fields: image, dest, port, domain
+	DetStreamListener   = "listener"   // fields: image, port, address
+)
+
+// DetCond is one field match within a rule. A condition matches a document if
+// the document's Field satisfies Op against ANY of Values (OR within a field);
+// a rule matches when ALL its conditions match (AND across fields) — the shape
+// of a single Sigma "selection".
+type DetCond struct {
+	Field  string   `json:"field"`
+	Op     string   `json:"op"` // equals|contains|startswith|endswith|regex
+	Values []string `json:"values"`
+}
+
+// DetectionRule is an operator-defined (or Sigma-imported) behavioral detection,
+// evaluated per snapshot alongside the built-in rules.
+type DetectionRule struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	Name       string    `json:"name"`
+	Enabled    bool      `json:"enabled"`
+	Severity   string    `json:"severity"` // CRITICAL|HIGH|MEDIUM|LOW
+	MITRE      string    `json:"mitre,omitempty"`
+	Stream     string    `json:"stream"`
+	Conditions []DetCond `json:"conditions"`
+	Source     string    `json:"source,omitempty"` // "custom" | "sigma"
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// DetectionSetting is a per-org override of a built-in detection rule (toggle it
+// off, or change its severity).
+type DetectionSetting struct {
+	RuleName string `json:"rule"`
+	Enabled  bool   `json:"enabled"`
+	Severity string `json:"severity,omitempty"` // "" = keep the rule's default
+}
+
+// BuiltinRuleInfo describes a built-in detection rule for the management UI.
+type BuiltinRuleInfo struct {
+	Name     string `json:"name"`
+	Severity string `json:"severity"`
+	MITRE    string `json:"mitre"`
+	Desc     string `json:"desc"`
+}
+
 // Dashboard is a named, persisted multi-panel layout. Its Spec is an opaque
 // JSON blob the dashboard UI interprets: {"panels":[{title,metric,minutes,endpoints}]}.
 type Dashboard struct {

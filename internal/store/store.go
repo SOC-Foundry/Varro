@@ -162,6 +162,26 @@ CREATE TABLE IF NOT EXISTS notify_routes (
 	created_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notify_routes_org ON notify_routes(org_id);
+CREATE TABLE IF NOT EXISTS detection_rules (
+	id         TEXT PRIMARY KEY,
+	org_id     TEXT NOT NULL,
+	name       TEXT NOT NULL,
+	enabled    INTEGER NOT NULL DEFAULT 1,
+	severity   TEXT NOT NULL DEFAULT 'MEDIUM',
+	mitre      TEXT NOT NULL DEFAULT '',
+	stream     TEXT NOT NULL,
+	conditions TEXT NOT NULL DEFAULT '[]',
+	source     TEXT NOT NULL DEFAULT 'custom',
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_detection_rules_org ON detection_rules(org_id);
+CREATE TABLE IF NOT EXISTS detection_settings (
+	org_id    TEXT NOT NULL,
+	rule_name TEXT NOT NULL,
+	enabled   INTEGER NOT NULL DEFAULT 1,
+	severity  TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (org_id, rule_name)
+);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,

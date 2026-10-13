@@ -92,13 +92,14 @@ type Server struct {
 	leader     atomic.Bool
 
 	corr *correlator // cross-endpoint IOC correlation
+	detc *detCache   // per-org custom detection rules + built-in overrides
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
 	id, _ := randomToken()
 	s := &Server{cfg: cfg, store: st, log: log, instanceID: id,
 		ips: newIPIndex(), listeners: newListenerIndex(), rdns: newRDNSCache(),
-		det: newDetector(), corr: newCorrelator()}
+		det: newDetector(), corr: newCorrelator(), detc: newDetCache()}
 	if cfg.ThreatIntel {
 		s.ti = newThreatIntel(cfg.ThreatFeeds, cfg.HashFeeds, cfg.DomainFeeds)
 	}
@@ -182,6 +183,12 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs/{id}/routes", s.handleOrgRoutes)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/routes", s.handleOrgRouteCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/routes/{routeID}", s.handleOrgRouteDelete)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/detections", s.handleDetectionsList)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/detections", s.handleDetectionCreate)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/detections/sigma", s.handleDetectionSigma)
+	mux.HandleFunc("PUT /api/v1/orgs/{id}/detections/{ruleID}", s.handleDetectionUpdate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/detections/{ruleID}", s.handleDetectionDelete)
+	mux.HandleFunc("PUT /api/v1/orgs/{id}/detections/builtin/{name}", s.handleDetectionBuiltin)
 	mux.HandleFunc("GET /download/{asset}", s.handleDownload)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)

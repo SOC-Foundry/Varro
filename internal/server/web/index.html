@@ -634,6 +634,29 @@
         </div>
         <div id="routeErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
       </div>
+      <div class="card wide"><h3>Detection rules</h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Behavioral detections evaluated per snapshot (process, connection, listener streams). Toggle the built-ins, add custom field-match rules, or import a Sigma rule.</p>
+        <div style="font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin:2px 0 4px">Built-in</div>
+        <table><thead><tr><th>Rule</th><th>ATT&amp;CK</th><th style="width:120px">Severity</th><th style="width:50px">On</th></tr></thead><tbody id="builtinDetRows"></tbody></table>
+        <div style="font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin:14px 0 4px">Custom &amp; Sigma</div>
+        <table><thead><tr><th>Name</th><th style="width:90px">Stream</th><th>Match</th><th style="width:70px">Sev</th><th style="width:40px">On</th><th style="width:40px"></th></tr></thead><tbody id="customDetRows"></tbody></table>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px">
+          <input id="detName" placeholder="rule name" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; min-width:130px">
+          <select id="detStream" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="process">process</option><option value="connection">connection</option><option value="listener">listener</option></select>
+          <select id="detField" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option>image</option><option>command</option><option>user</option><option>dest</option><option>port</option><option>domain</option><option>address</option></select>
+          <select id="detOp" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option>contains</option><option>equals</option><option>startswith</option><option>endswith</option><option>regex</option></select>
+          <input id="detValues" placeholder="value(s), comma-separated" style="flex:1; min-width:160px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px">
+          <select id="detSev" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option>CRITICAL</option><option>HIGH</option><option selected>MEDIUM</option><option>LOW</option></select>
+          <button class="abtn" id="addDetBtn">Add rule</button>
+        </div>
+        <div id="detErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer; color:var(--accent); font-size:13px">Import a Sigma rule</summary>
+          <textarea id="sigmaYaml" rows="8" spellcheck="false" placeholder="paste Sigma YAML…" style="width:100%; margin-top:6px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:var(--mono); font-size:12px"></textarea>
+          <button class="abtn" id="importSigmaBtn" style="margin-top:6px">Import Sigma</button>
+          <div id="sigmaResult" style="font-size:12px; margin-top:6px"></div>
+        </details>
+      </div>
       <div class="card wide"><h3>Audit log <span class="now" id="auditNow"></span></h3>
         <div style="overflow-x:auto; max-height:320px; overflow-y:auto"><table>
           <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
@@ -1203,6 +1226,8 @@ function setupAdmin(me) {
   };
   $("saveFimBtn").onclick = saveFIM;
   $("addRouteBtn").onclick = addRoute;
+  $("addDetBtn").onclick = addDetRule;
+  $("importSigmaBtn").onclick = importSigma;
   $("mintBtn").onclick = async () => {
     try {
       const out = await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/tokens`,
@@ -1268,6 +1293,7 @@ async function loadAdminOrg() {
       $("fimPaths").value = (fim.paths ?? []).join("\n");
     } catch {}
     loadRoutes(org);
+    loadDetections(org);
     loadAudit();
   } catch (e) { oops(e); }
 }
@@ -1324,6 +1350,91 @@ async function deleteRoute(id) {
     await del(`/api/v1/orgs/${encodeURIComponent(org)}/routes/${encodeURIComponent(id)}`);
     loadRoutes(org);
   } catch (e) { oops(e); }
+}
+
+/* ---- detection rules (admin) ---- */
+const DET_SEVS = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+async function loadDetections(org) {
+  try {
+    const r = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/detections`);
+    renderBuiltinDet(org, r.builtins || []);
+    renderCustomDet(org, r.custom || []);
+  } catch (e) { $("builtinDetRows").innerHTML = `<tr><td colspan="4" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+const detSelCss = "background:#1c232c;color:var(--text);border:1px solid var(--border);border-radius:5px;padding:3px;font-size:12px";
+function renderBuiltinDet(org, rows) {
+  const tb = $("builtinDetRows");
+  tb.innerHTML = rows.map(b => `
+    <tr data-rule="${esc(b.name)}">
+      <td><b>${esc(b.name)}</b><div style="color:var(--dim);font-size:11px;white-space:normal">${esc(b.desc)}</div></td>
+      <td style="font-family:var(--mono);color:var(--dim)">${esc(b.mitre)}</td>
+      <td><select class="bsev" style="${detSelCss}">${DET_SEVS.map(s => `<option ${s === b.severity ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+      <td><input type="checkbox" class="bon" ${b.enabled ? "checked" : ""}></td>
+    </tr>`).join("");
+  tb.querySelectorAll("tr[data-rule]").forEach(tr => {
+    const name = tr.getAttribute("data-rule"), sel = tr.querySelector(".bsev"), cb = tr.querySelector(".bon");
+    const save = async () => {
+      try {
+        const r = await fetch(`/api/v1/orgs/${encodeURIComponent(org)}/detections/builtin/${encodeURIComponent(name)}`,
+          { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: cb.checked, severity: sel.value }) });
+        if (!r.ok) throw new Error(await r.text());
+      } catch (e) { oops(e); }
+    };
+    sel.onchange = save; cb.onchange = save;
+  });
+}
+function renderCustomDet(org, rules) {
+  const tb = $("customDetRows");
+  if (!rules.length) { tb.innerHTML = `<tr><td colspan="6" style="color:var(--dim)">no custom rules yet</td></tr>`; return; }
+  tb.innerHTML = rules.map(r => {
+    const match = (r.conditions || []).map(c => `${esc(c.field)} ${esc(c.op)} ${esc((c.values || []).join("|"))}`).join(" AND ");
+    return `<tr data-id="${esc(r.id)}">
+      <td><b>${esc(r.name)}</b>${r.mitre ? ` <span style="color:var(--dim);font-size:11px">${esc(r.mitre)}</span>` : ""}${r.source === "sigma" ? ` <span style="color:var(--accent);font-size:10px">sigma</span>` : ""}</td>
+      <td style="font-family:var(--mono);color:var(--dim)">${esc(r.stream)}</td>
+      <td style="font-family:var(--mono);font-size:11px;white-space:normal">${match}</td>
+      <td>${esc(r.severity)}</td>
+      <td><input type="checkbox" class="con" ${r.enabled ? "checked" : ""}></td>
+      <td><button class="del-det" title="delete" style="color:var(--red);border:none;background:none;cursor:pointer;font-size:14px">✕</button></td>
+    </tr>`;
+  }).join("");
+  tb.querySelectorAll("tr[data-id]").forEach(tr => {
+    const id = tr.getAttribute("data-id");
+    tr.querySelector(".con").onchange = async e => {
+      try {
+        const r = await fetch(`/api/v1/orgs/${encodeURIComponent(org)}/detections/${encodeURIComponent(id)}`,
+          { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: e.target.checked }) });
+        if (!r.ok) throw new Error(await r.text());
+      } catch (ex) { oops(ex); }
+    };
+    tr.querySelector(".del-det").onclick = async () => {
+      if (!confirm("Delete this detection rule?")) return;
+      try { await del(`/api/v1/orgs/${encodeURIComponent(org)}/detections/${encodeURIComponent(id)}`); loadDetections(org); } catch (ex) { oops(ex); }
+    };
+  });
+}
+async function addDetRule() {
+  $("detErr").textContent = "";
+  const org = $("adminOrgSelect").value;
+  const values = $("detValues").value.split(",").map(s => s.trim()).filter(Boolean);
+  if (!$("detName").value.trim() || !values.length) { $("detErr").textContent = "name and at least one value are required"; return; }
+  const body = {
+    name: $("detName").value.trim(), stream: $("detStream").value, severity: $("detSev").value,
+    conditions: [{ field: $("detField").value, op: $("detOp").value, values }],
+  };
+  try { await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/detections`, body); $("detName").value = ""; $("detValues").value = ""; loadDetections(org); }
+  catch (e) { $("detErr").textContent = e.message; }
+}
+async function importSigma() {
+  const org = $("adminOrgSelect").value;
+  $("sigmaResult").textContent = "";
+  try {
+    const r = await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/detections/sigma`, { yaml: $("sigmaYaml").value });
+    $("sigmaYaml").value = "";
+    const warns = (r.warnings || []);
+    $("sigmaResult").innerHTML = `<span style="color:var(--green)">imported "${esc(r.rule.name)}" (${esc(r.rule.stream)}, ${esc(r.rule.severity)})</span>` +
+      (warns.length ? ` · <span style="color:var(--amber)">${warns.map(esc).join("; ")}</span>` : "");
+    loadDetections(org);
+  } catch (e) { $("sigmaResult").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
 }
 
 async function saveFIM() {

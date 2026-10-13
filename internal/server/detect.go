@@ -84,21 +84,20 @@ func (d *detector) should(endpoint, rule, key string) bool {
 
 // detect evaluates behavioral rules and emits detection events.
 func (s *Server) detect(ctx context.Context, orgID string, snap *model.Snapshot) {
+	od := s.orgDetections(ctx, orgID)
+	// fire respects per-org built-in overrides (disable / severity change).
 	fire := func(rule, severity, key, msg string) {
-		if !s.det.should(snap.AgentID, rule, key) {
-			return
+		if st, ok := od.settings[rule]; ok {
+			if !st.Enabled {
+				return
+			}
+			if st.Severity != "" {
+				severity = st.Severity
+			}
 		}
-		full := fmt.Sprintf("[%s] %s", severity, rule)
-		if tech := mitreTechnique[rule]; tech != "" {
-			full += " (ATT&CK " + tech + ")"
-		}
-		full += ": " + msg
-		s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDetection, full)
-		s.log.Warn("behavioral detection", "rule", rule, "severity", severity,
-			"endpoint", snap.Hostname, "detail", msg)
-		s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventDetection, Message: full}})
-		s.siemForward(orgID, snap.Hostname, "detection", severity, mitreTechnique[rule], full)
+		s.fireDetection(ctx, orgID, snap, rule, severity, mitreTechnique[rule], key, msg)
 	}
+	defer s.evaluateCustomDetections(ctx, orgID, snap, od)
 
 	// 1. Reverse shell / C2: a shell or raw network tool with a live outbound
 	//    connection. Loopback (127.0.0.0/8, ::1) is a local connection, not a

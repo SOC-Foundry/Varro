@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.74.0] — 2026-10-13
+- Detection engineering: behavioral detections are now manageable per org, not just hardcoded. In Admin → Detection rules you can toggle and re-severity the built-ins (reverse shell, backdoor listener, crypto miner, recon, exec storm), add custom field-match rules over the process / connection / listener streams, and **import Sigma rules** (a pragmatic subset: title/level/tags→MITRE, logsource category→stream, a detection selection → AND-of-fields / OR-of-values, with warnings for unsupported parts). New `detection_rules` + `detection_settings` tables; `GET/POST/PUT/DELETE /api/v1/orgs/{id}/detections` plus `/sigma` and `/builtin/{name}`.
+
 ## [v0.73.0] — 2026-10-13
 - Temperature now defaults to °F (the metric explorer's °C/°F toggle still switches, and an explicit prior choice is preserved).
 
