@@ -25,6 +25,11 @@ func TestAllowedProbeIP(t *testing.T) {
 		{"10.128.0.10", true, true},
 		{"192.168.1.1", false, false},
 		{"172.16.5.5", false, false},
+		// CGNAT + reserved ranges IsPrivate() misses: infra only.
+		{"100.64.0.1", false, false},
+		{"100.64.0.1", true, true},
+		{"198.18.0.1", false, false},
+		{"240.0.0.1", false, false},
 		// Public: allowed for everyone.
 		{"1.1.1.1", false, true},
 		{"8.8.8.8", false, true},

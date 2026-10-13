@@ -336,10 +336,39 @@ func probeDialControl(infra bool) func(network, address string, c syscall.RawCon
 	}
 }
 
+// nonRoutableCIDRs are internal/reserved ranges that net.IP.IsPrivate() misses —
+// notably CGNAT (100.64.0.0/10), which some overlay/container/VPN fabrics use for
+// internal services. Treated like private (Infrastructure-org only) to close an
+// SSRF bypass.
+var nonRoutableCIDRs = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{
+		"100.64.0.0/10", // CGNAT (RFC 6598)
+		"192.0.0.0/24",  // IETF protocol assignments
+		"198.18.0.0/15", // benchmarking (RFC 2544)
+		"240.0.0.0/4",   // reserved / future use
+	} {
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}()
+
+func isNonRoutable(ip net.IP) bool {
+	for _, n := range nonRoutableCIDRs {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // allowedProbeIP enforces the SSRF policy. Link-local (169.254.0.0/16 incl. the
 // cloud metadata endpoint, fe80::/10), multicast, and the unspecified address
-// are blocked for everyone. Loopback and private ranges are allowed only for an
-// Infrastructure org (operator-controlled, for monitoring internal services).
+// are blocked for everyone. Loopback, private (RFC1918/fc00::), and other
+// non-routable ranges (CGNAT, reserved) are allowed only for an Infrastructure
+// org (operator-controlled, for monitoring internal services).
 func allowedProbeIP(infra bool, ip net.IP) error {
 	switch {
 	case ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast():
@@ -351,11 +380,11 @@ func allowedProbeIP(infra bool, ip net.IP) error {
 			return nil
 		}
 		return fmt.Errorf("loopback address not allowed")
-	case ip.IsPrivate():
+	case ip.IsPrivate() || isNonRoutable(ip):
 		if infra {
 			return nil
 		}
-		return fmt.Errorf("private address not allowed for this org")
+		return fmt.Errorf("private/reserved address not allowed for this org")
 	}
 	return nil
 }

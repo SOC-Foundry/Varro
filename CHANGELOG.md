@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.78.0] — 2026-10-13
+- Security hardening (from a focused review of the v0.67–v0.77 surface; no high-severity issues found): the synthetic-probe / webhook SSRF guard now also blocks CGNAT (`100.64.0.0/10`) and reserved ranges (`192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`) for non-infrastructure orgs — `net.IP.IsPrivate()` missed these. And webhook/Slack delivery-failure logs now redact the URL to scheme+host so path-embedded secrets never reach the logs.
+
 ## [v0.77.0] — 2026-10-13
 - Retention rollups: raw samples (kept ~72h) are folded into hourly per-endpoint averages before pruning and retained for 90 days. History and metric-explorer queries spanning more than ~36h transparently read the rollups, so 7-day (and longer) charts show real history instead of flat-lining past the raw window — without unbounded DB growth. Fully transparent to the UI (falls back to raw until the first rollup runs). New `sample_rollups` table; rollup runs each prune cycle (leader-only).
 

@@ -315,12 +315,12 @@ func (s *Server) postJSON(url string, payload any) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		s.log.Error("webhook notify failed", "url", url, "error", err)
+		s.log.Error("webhook notify failed", "url", redactURL(url), "error", err)
 		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		s.log.Error("webhook notify rejected", "url", url, "status", resp.Status)
+		s.log.Error("webhook notify rejected", "url", redactURL(url), "status", resp.Status)
 	}
 }
 

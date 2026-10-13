@@ -152,13 +152,23 @@ func (s *Server) postRoute(client *http.Client, url string, headers map[string]s
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		s.log.Error("route notify failed", "url", url, "error", err)
+		s.log.Error("route notify failed", "url", redactURL(url), "error", err)
 		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		s.log.Error("route notify rejected", "url", url, "status", resp.Status)
+		s.log.Error("route notify rejected", "url", redactURL(url), "status", resp.Status)
 	}
+}
+
+// redactURL reduces a URL to scheme://host for logging — webhook/Slack URLs
+// embed secret tokens in their path, which must never reach the logs.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "[redacted]"
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // ---- handlers ----
