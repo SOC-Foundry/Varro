@@ -25,6 +25,23 @@ promoted node).
   config backups kept as `*.pre-autoctl` / `*.pre-multihost` for rollback.
 - Monitor commands: `sudo -u postgres pg_autoctl show state --pgdata /var/lib/postgresql/15/monitor`;
   manual switchover: `… pg_autoctl perform failover --pgdata …/monitor`.
+- Replication is **synchronous** (`sync_state=quorum`) → zero-data-loss failover.
+
+### Restarting / maintaining the primary (verified 2026-10-13)
+
+A primary restart that takes the node offline long enough — e.g.
+`systemctl restart pgautofailover` on the primary, which also stops the keeper —
+is (correctly) seen by the monitor as node-loss and **triggers an automatic
+failover**: the secondary is promoted (lossless, sync repl), collectors follow via
+the multi-host DSN (health stayed 200), and the old primary rejoins as a healthy
+secondary — all with no human action. So **"restart the primary" is not a no-op**;
+expect a failover.
+
+To do OS/PG maintenance on a node **without** a surprise failover, switch the
+primary role off it first: `pg_autoctl perform failover` (or `perform switchover`),
+then the node is a secondary you can restart/patch freely, then switch back. Don't
+re-enable `postgresql@15-main` — always manage Postgres through the `pgautofailover`
+service / `pg_autoctl`.
 
 ---
 
