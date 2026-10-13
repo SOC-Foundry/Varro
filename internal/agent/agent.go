@@ -81,7 +81,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		c.SetConnTracer(connAdapter{tr})
 		log.Info("eBPF sensors active (exec + connect)")
 	} else {
-		log.Info("eBPF sensors unavailable, continuing without them", "reason", err)
+		// No kernel sensor (Windows/macOS, old/unprivileged Linux): fall back to
+		// a portable polling exec sensor so process-start signal still reaches the
+		// detection engine cross-platform.
+		c.SetExecTracer(collect.NewPollExecTracer())
+		log.Info("eBPF sensors unavailable; using portable polling exec sensor", "reason", err)
 	}
 
 	// Best-effort passive DNS watcher; labels topology with real domains.

@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.80.0] — 2026-10-13
+- Cross-platform process-start sensing: Windows and macOS agents (and old/unprivileged Linux) now feed process-start events to the detection engine via a portable polling sensor that diffs the process table each sample — previously only Linux (eBPF) populated this, so custom/built-in detection rules on the process stream now work on every platform. (Most detections already worked cross-platform via gopsutil processes/connections/ports; this adds the process-start signal.) The polling sensor can't catch sub-interval processes the way the Linux eBPF sensor does; true kernel-native deep sensors — Windows ETW, macOS Endpoint Security Framework — remain a documented roadmap item (macOS ESF needs Apple-signed system-extension packaging). See docs/agent-platforms.md.
+
 ## [v0.79.0] — 2026-10-13
 - Incident management: related alerts and detections for the same endpoint now auto-group into an incident (2-hour correlation window) with a rolled-up severity, a timeline, a status (open → acknowledged → resolved), and an assignee. A new "🚨 Incidents" view triages them — ack, assign, resolve, add notes — with the full timeline of every signal and action. API: `GET /api/v1/incidents` + `/{id}` and `POST /{id}/ack|assign|resolve|note`.
 
