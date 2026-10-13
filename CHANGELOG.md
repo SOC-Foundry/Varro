@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.67.0] — 2026-10-13
+- Synthetic / uptime monitoring: operator-configured active HTTP/TCP probes the collector runs on an interval (not passive agent telemetry). New "📡 Uptime checks" view shows up/down status, latency, and 24h uptime per check, with a probe-latency chart. A down probe raises a `synthetic-down` alert through the existing engine (notifications + SIEM). Probes are SSRF-guarded: each resolved IP is vetted post-DNS (rebinding-safe) — link-local/cloud-metadata blocked for all orgs, loopback/private only for Infrastructure orgs. `GET/POST/DELETE /api/v1/synthetic`.
+- Fix: server-generated alert rules (`service-error-rate`, `service-latency-p95`, `log-error-burst`, and the new `synthetic-down`) are now exempt from orphaned-alert cleanup, which previously flapped them resolved→firing every 15s.
+
 ## [v0.66.0] — 2026-10-12
 - Postgres HA: a hot streaming standby (`varro-pg-2`) replicates the primary (async, ~2ms lag), pre-staged with a CA-signed cert + listening on its IP so failover is promote + repoint. Removes the last single point of failure. Runbook: docs/postgres-ha.md. (Infra + docs; no agent change.)
 

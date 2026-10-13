@@ -14,6 +14,16 @@ import (
 	"github.com/soc-foundry/varro/internal/model"
 )
 
+// serverGeneratedRules are rule names the server evaluates on its own (not from
+// the rules file): telemetry SLO alerts, log-error bursts, and synthetic uptime
+// probes. resolveOrphanedAlerts must treat them as known.
+var serverGeneratedRules = []string{
+	"service-error-rate",
+	"service-latency-p95",
+	"log-error-burst",
+	"synthetic-down",
+}
+
 // DefaultRules apply when no --rules file is given.
 var DefaultRules = []model.AlertRule{
 	{Name: "high-cpu", Metric: "cpu_pct", Op: ">", Threshold: 90, ForSeconds: 300},
@@ -151,6 +161,12 @@ func (s *Server) resolveOrphanedAlerts(ctx context.Context) {
 	}
 	for _, am := range anomalyMetrics {
 		known["anomaly-"+am.metric] = true
+	}
+	// Server-generated rule families (telemetry SLO, log bursts, synthetic
+	// uptime) aren't in the rules file but are evaluated every tick, so they
+	// must not be treated as orphaned.
+	for _, r := range serverGeneratedRules {
+		known[r] = true
 	}
 	firing, err := s.store.Alerts(ctx, model.AlertFiring, nil, 1000)
 	if err != nil {

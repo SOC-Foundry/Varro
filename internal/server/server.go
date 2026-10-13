@@ -151,6 +151,10 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/views/{id}", s.handleDeleteView)
 	mux.HandleFunc("POST /api/v1/logs", s.handleLogIngest)
 	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
+	mux.HandleFunc("GET /api/v1/synthetic", s.handleSyntheticList)
+	mux.HandleFunc("POST /api/v1/synthetic", s.handleSyntheticCreate)
+	mux.HandleFunc("DELETE /api/v1/synthetic/{id}", s.handleSyntheticDelete)
+	mux.HandleFunc("GET /api/v1/synthetic/{id}/results", s.handleSyntheticResults)
 	mux.HandleFunc("GET /api/v1/topology/timeline", s.handleTopologyTimeline)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/edges", s.handleTopologyReset)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
@@ -198,6 +202,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.pruneLoop(ctx)
 	go s.alertLoop(ctx)
 	go s.topoSnapshotLoop(ctx)
+	go s.proberLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}

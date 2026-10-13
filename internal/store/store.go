@@ -119,6 +119,30 @@ CREATE TABLE IF NOT EXISTS saved_views (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_views_owner ON saved_views(owner);
+CREATE TABLE IF NOT EXISTS synthetic_checks (
+	id          TEXT PRIMARY KEY,
+	org_id      TEXT NOT NULL,
+	name        TEXT NOT NULL,
+	type        TEXT NOT NULL DEFAULT 'http',
+	target      TEXT NOT NULL,
+	interval_s  INTEGER NOT NULL DEFAULT 60,
+	expect_code INTEGER NOT NULL DEFAULT 0,
+	enabled     INTEGER NOT NULL DEFAULT 1,
+	created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_synthetic_checks_org ON synthetic_checks(org_id);
+CREATE TABLE IF NOT EXISTS probe_results (
+	id         INTEGER PRIMARY KEY,
+	check_id   TEXT NOT NULL,
+	org_id     TEXT NOT NULL,
+	ts         INTEGER NOT NULL,
+	ok         INTEGER NOT NULL,
+	latency_ms REAL NOT NULL DEFAULT 0,
+	code       INTEGER NOT NULL DEFAULT 0,
+	error      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_probe_results_check_ts ON probe_results(check_id, ts);
+CREATE INDEX IF NOT EXISTS idx_probe_results_org_ts ON probe_results(org_id, ts);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,
@@ -694,6 +718,11 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 		return 0, err
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM otlp_spans WHERE ts < ?`, sampleCut); err != nil {
+		return 0, err
+	}
+	// Probe results are high-volume (one row per check per interval); keep them
+	// on the short (sample) retention. Check configs persist.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM probe_results WHERE ts < ?`, sampleCut); err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE ts < ?`, sampleCut)

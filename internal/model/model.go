@@ -577,6 +577,50 @@ type VulnPriority struct {
 	Reasons        []string `json:"reasons,omitempty"` // human-readable ranking drivers
 }
 
+// Synthetic-check types.
+const (
+	ProbeHTTP = "http"
+	ProbeTCP  = "tcp"
+)
+
+// SyntheticCheck is an operator-configured active uptime probe: the collector
+// periodically reaches out to Target and records whether it responds. Unlike
+// the rest of Varro's telemetry (passively reported by agents), this is an
+// outbound check the collector itself performs.
+type SyntheticCheck struct {
+	ID         string    `json:"id"`
+	OrgID      string    `json:"org_id"`
+	Name       string    `json:"name"`
+	Type       string    `json:"type"`                    // "http" | "tcp"
+	Target     string    `json:"target"`                  // URL (http) or host:port (tcp)
+	IntervalS  int       `json:"interval_seconds"`        // how often to probe
+	ExpectCode int       `json:"expect_status,omitempty"` // http: required status (0 = any 2xx)
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ProbeResult is one recorded outcome of a synthetic check.
+type ProbeResult struct {
+	CheckID   string  `json:"check_id"`
+	TS        int64   `json:"ts"` // unix seconds
+	OK        bool    `json:"ok"`
+	LatencyMs float64 `json:"latency_ms"`
+	Code      int     `json:"code,omitempty"`  // HTTP status, when applicable
+	Error     string  `json:"error,omitempty"` // short failure reason when !ok
+}
+
+// SyntheticStatus is a check plus its current health for the uptime view.
+type SyntheticStatus struct {
+	SyntheticCheck
+	Up          bool    `json:"up"` // latest probe succeeded
+	LastLatency float64 `json:"last_latency_ms"`
+	LastCode    int     `json:"last_code,omitempty"`
+	LastError   string  `json:"last_error,omitempty"`
+	LastTS      int64   `json:"last_ts,omitempty"`
+	UptimePct   float64 `json:"uptime_pct"` // over the last 24h
+	Samples24h  int     `json:"samples_24h"`
+}
+
 // LogEntry is a single collected log line shipped from an endpoint (e.g. a
 // journald record). Severity follows syslog names (emergency..debug) or "".
 type LogEntry struct {

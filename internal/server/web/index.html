@@ -161,6 +161,9 @@
     <a href="#" id="tracesLink" style="color:var(--accent); font-size:13px">🧵 Traces</a>
   </div>
   <div style="padding:8px 16px; border-top:1px solid var(--border)">
+    <a href="#" id="syntheticLink" style="color:var(--accent); font-size:13px">📡 Uptime checks</a>
+  </div>
+  <div style="padding:8px 16px; border-top:1px solid var(--border)">
     <a href="#" id="downloadLink" style="color:var(--accent); font-size:13px">⬇ Download agent</a>
   </div>
   <div id="adminbar" style="display:none; padding:8px 16px; border-top:1px solid var(--border)">
@@ -498,6 +501,45 @@
     <div id="traceDetail" class="card" style="margin-top:12px; display:none"></div>
   </div>
 
+  <div id="syntheticView" style="display:none">
+    <header style="margin-bottom:10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap">
+      <h2>Uptime checks</h2>
+      <span class="meta" style="color:var(--dim); font-size:13px">active HTTP/TCP probes the collector runs · current status</span>
+      <a href="#" id="syntheticBack" style="color:var(--accent); font-size:13px">← back to endpoints</a>
+      <span style="flex:1"></span>
+      <button class="abtn" id="syntheticRefresh" style="color:var(--accent)">↻ refresh</button>
+    </header>
+    <div id="syntheticAddCard" class="card" style="margin-bottom:12px; display:none">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+        <input id="chkName" placeholder="name (e.g. API health)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12.5px; min-width:160px">
+        <select id="chkType" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px">
+          <option value="http">HTTP</option>
+          <option value="tcp">TCP</option>
+        </select>
+        <input id="chkTarget" placeholder="https://example.com/health  or  host:port" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12.5px; min-width:260px; flex:1">
+        <input id="chkInterval" type="number" min="10" max="3600" value="60" title="probe interval (seconds)" style="width:80px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px">
+        <input id="chkExpect" type="number" min="0" max="599" placeholder="2xx" title="expected HTTP status (blank = any 2xx/3xx)" style="width:80px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px">
+        <button class="abtn" id="chkAdd" style="color:var(--accent); border-color:var(--accent)">+ add check</button>
+      </div>
+      <div id="chkErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
+    </div>
+    <div id="syntheticLegend" style="font-family:var(--mono); font-size:12px; color:var(--dim); margin-bottom:8px"></div>
+    <div class="card" style="overflow-x:auto">
+      <table style="width:100%; min-width:760px">
+        <thead><tr>
+          <th style="width:76px">Status</th><th>Name</th><th style="width:56px">Type</th>
+          <th>Target</th><th class="num" style="width:90px">Latency</th>
+          <th class="num" style="width:96px">24h uptime</th><th style="width:150px">Last check</th><th style="width:36px"></th>
+        </tr></thead>
+        <tbody id="syntheticRows"></tbody>
+      </table>
+    </div>
+    <div id="syntheticDetail" style="display:none; margin-top:12px">
+      <div class="meta" id="syntheticChartLabel" style="color:var(--dim); font-size:12px; margin-bottom:4px"></div>
+      <canvas id="syntheticChart" class="card" style="width:100%; height:180px"></canvas>
+    </div>
+  </div>
+
   <div id="adminView" style="display:none">
     <header style="margin-bottom:14px">
       <h2>Administration</h2>
@@ -747,7 +789,7 @@ async function refreshEndpoints() {
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
-  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode;
+  const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
   if (!otherView) $("detail").style.display = eps.length && selected ? "block" : "none";
 }
@@ -1077,6 +1119,7 @@ function showAdmin(on) {
   if (on && metricsMode) { hideMetrics(); }
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
+  if (on && syntheticMode) { hideSynthetic(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   if (on && topoMode) { // leaving topology for admin
     clearInterval(topoTimer);
@@ -1200,6 +1243,7 @@ function showDownload(on) {
   if (on && metricsMode) { hideMetrics(); }
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
+  if (on && syntheticMode) { hideSynthetic(); }
   if (on) {
     if (topoMode) showTopo(false);
     if (adminMode) showAdmin(false);
@@ -1229,6 +1273,7 @@ function showReport(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     reportMode = true;
     $("reportView").style.display = "block";
     $("detail").style.display = "none";
@@ -1469,6 +1514,7 @@ function showFlows(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     flowsMode = true;
     $("flowsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1661,6 +1707,7 @@ function showLogs(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     logsMode = true;
     $("logsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1763,6 +1810,7 @@ function showPriority(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     priorityMode = true;
     $("priorityView").style.display = "block";
     $("detail").style.display = "none";
@@ -1843,6 +1891,7 @@ function showMetrics(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     metricsMode = true;
     $("metricsView").style.display = "block";
     $("detail").style.display = "none";
@@ -1987,6 +2036,7 @@ function showOtlp(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     otlpMode = true;
     $("otlpView").style.display = "block";
     $("detail").style.display = "none";
@@ -2063,6 +2113,7 @@ function showTraces(on) {
     if (metricsMode) hideMetrics();
     if (otlpMode) hideOtlp();
     if (tracesMode) hideTraces();
+    if (syntheticMode) hideSynthetic();
     tracesMode = true;
     $("tracesView").style.display = "block";
     $("detail").style.display = "none";
@@ -2159,6 +2210,144 @@ async function openTrace(id) {
 }
 
 /* ---- topology view ---- */
+/* ---- synthetic / uptime checks view ---- */
+let syntheticMode = false, syntheticData = [], syntheticTimer = null, syntheticSel = "";
+$("syntheticLink").onclick = e => { e.preventDefault(); closeSidebar(); showSynthetic(true); };
+$("syntheticBack").onclick = e => { e.preventDefault(); showSynthetic(false); };
+$("syntheticRefresh").onclick = () => loadSynthetic();
+$("chkAdd").onclick = () => addCheck();
+
+function hideSynthetic() {
+  syntheticMode = false;
+  $("syntheticView").style.display = "none";
+  clearInterval(syntheticTimer); syntheticTimer = null;
+}
+
+function canAdminCurrentOrg() {
+  const m = window._me;
+  if (!m) return false;
+  if (m.user && m.user.admin) return true;
+  return (m.orgs || []).some(o => o.id === currentOrg && o.role === "admin");
+}
+
+function showSynthetic(on) {
+  syntheticMode = on;
+  if (on) {
+    if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+    showAdmin(false);
+    if (dlMode) showDownload(false);
+    if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+    if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+    if (logsMode) hideLogs();
+    if (priorityMode) hidePriority();
+    if (metricsMode) hideMetrics();
+    if (otlpMode) hideOtlp();
+    if (tracesMode) hideTraces();
+    syntheticMode = true;
+    $("syntheticView").style.display = "block";
+    $("detail").style.display = "none";
+    $("syntheticAddCard").style.display = canAdminCurrentOrg() ? "block" : "none";
+    $("syntheticDetail").style.display = "none"; syntheticSel = "";
+    loadSynthetic();
+    clearInterval(syntheticTimer);
+    syntheticTimer = setInterval(() => { if (!document.hidden && syntheticMode) loadSynthetic(); }, 15000);
+  } else {
+    hideSynthetic();
+    refreshEndpoints();
+  }
+}
+
+async function loadSynthetic() {
+  try {
+    const r = await getJSON(orgQ("/api/v1/synthetic"));
+    syntheticData = r.checks || [];
+    renderSynthetic();
+  } catch (e) {
+    $("syntheticRows").innerHTML = `<tr><td colspan="8" style="color:var(--red)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderSynthetic() {
+  const rows = $("syntheticRows");
+  const admin = canAdminCurrentOrg();
+  if (!syntheticData.length) {
+    rows.innerHTML = `<tr><td colspan="8" style="color:var(--dim)">no uptime checks yet${admin ? " — add one above" : ""}</td></tr>`;
+    $("syntheticLegend").textContent = "";
+    return;
+  }
+  rows.innerHTML = syntheticData.map(c => {
+    const hasData = c.last_ts > 0, up = c.up;
+    const col = !hasData ? "var(--dim)" : (up ? "var(--green)" : "var(--red)");
+    const label = !hasData ? "pending" : (up ? "up" : "down");
+    const lat = hasData ? c.last_latency_ms.toFixed(0) + " ms" : "—";
+    const upt = c.samples_24h ? c.uptime_pct.toFixed(c.uptime_pct >= 99.95 ? 0 : 1) + "%" : "—";
+    const uptCol = !c.samples_24h ? "var(--dim)" : (c.uptime_pct >= 99 ? "var(--green)" : c.uptime_pct >= 95 ? "var(--amber)" : "var(--red)");
+    const last = hasData ? new Date(c.last_ts * 1000).toLocaleTimeString() : "—";
+    const detail = !up && hasData && c.last_error ? ` · <span style="color:var(--red)">${esc(c.last_error)}</span>` : "";
+    return `<tr data-id="${esc(c.id)}" style="cursor:pointer">
+      <td style="white-space:nowrap"><span class="dot" style="display:inline-block; background:${col}"></span> <span style="color:${col}">${label}</span></td>
+      <td>${esc(c.name)}${detail}</td>
+      <td style="font-family:var(--mono); color:var(--dim)">${esc(c.type)}</td>
+      <td style="font-family:var(--mono); word-break:break-all">${esc(c.target)}</td>
+      <td class="num" style="font-family:var(--mono)">${lat}</td>
+      <td class="num" style="color:${uptCol}">${upt}</td>
+      <td style="font-family:var(--mono); color:var(--dim)">${esc(last)}</td>
+      <td>${admin ? `<button class="del-chk" data-id="${esc(c.id)}" title="delete check" style="color:var(--red); border:none; background:none; cursor:pointer; font-size:14px">✕</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  rows.querySelectorAll("tr[data-id]").forEach(tr => {
+    tr.onclick = ev => { if (ev.target.classList.contains("del-chk")) return; showCheckChart(tr.getAttribute("data-id")); };
+  });
+  rows.querySelectorAll(".del-chk").forEach(b => {
+    b.onclick = ev => { ev.stopPropagation(); deleteCheck(b.getAttribute("data-id")); };
+  });
+  const down = syntheticData.filter(c => c.last_ts > 0 && !c.up).length;
+  $("syntheticLegend").innerHTML = `${syntheticData.length} check${syntheticData.length === 1 ? "" : "s"}` +
+    (down ? ` · <span style="color:var(--red)">${down} down</span>` : ` · <span style="color:var(--green)">all up</span>`);
+}
+
+async function showCheckChart(id) {
+  const c = syntheticData.find(x => x.id === id);
+  if (!c) return;
+  syntheticSel = id;
+  $("syntheticDetail").style.display = "block";
+  $("syntheticChartLabel").textContent = `${c.name} — probe latency (last 6h)`;
+  try {
+    const r = await getJSON(orgQ(`/api/v1/synthetic/${encodeURIComponent(id)}/results?minutes=360`));
+    const results = (r.results || []).slice().reverse(); // oldest → newest
+    const series = [{ color: "#58a6ff", fill: true, data: results.map(p => ({ t: p.ts, v: p.latency_ms })) }];
+    drawChart($("syntheticChart"), series, { fmt: v => v.toFixed(0) + "ms" });
+  } catch (e) { oops(e); }
+}
+
+async function addCheck() {
+  $("chkErr").textContent = "";
+  const body = {
+    org_id: currentOrg,
+    name: $("chkName").value.trim(),
+    type: $("chkType").value,
+    target: $("chkTarget").value.trim(),
+    interval_seconds: parseInt($("chkInterval").value, 10) || 60,
+    expect_status: parseInt($("chkExpect").value, 10) || 0,
+  };
+  if (!body.name || !body.target) { $("chkErr").textContent = "name and target are required"; return; }
+  try {
+    await postJSON(orgQ("/api/v1/synthetic"), body);
+    $("chkName").value = ""; $("chkTarget").value = ""; $("chkExpect").value = "";
+    loadSynthetic();
+  } catch (e) { $("chkErr").textContent = e.message; }
+}
+
+async function deleteCheck(id) {
+  const c = syntheticData.find(x => x.id === id);
+  if (!confirm(`Delete check "${c ? c.name : id}"?`)) return;
+  try {
+    await del(orgQ(`/api/v1/synthetic/${encodeURIComponent(id)}`));
+    if (syntheticSel === id) $("syntheticDetail").style.display = "none";
+    loadSynthetic();
+  } catch (e) { oops(e); }
+}
+
 let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim = null, topoTimer = null;
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
 let dragNode = null;
@@ -2216,6 +2405,7 @@ function showTopo(on) {
   if (on && metricsMode) { hideMetrics(); }
   if (on && otlpMode) { hideOtlp(); }
   if (on && tracesMode) { hideTraces(); }
+  if (on && syntheticMode) { hideSynthetic(); }
   if (on && dlMode) { dlMode = false; $("downloadView").style.display = "none"; }
   $("topoView").style.display = on ? "block" : "none";
   $("detail").style.display = on || adminMode ? "none" : "block";
