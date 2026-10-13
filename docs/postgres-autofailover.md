@@ -84,18 +84,36 @@ existing populated primary + hand-built standby, so the cutover has one extra
 risk the test didn't cover: getting prod data under pg_autoctl's management.
 Two options:
 
-**Option A — adopt in place (less data movement, more fiddly).** `pg_autoctl
-create postgres` can adopt an existing PGDATA, but it takes over PG service/config
-management and briefly restarts Postgres. Steps:
-1. Create `varro-pg-mon` (e2-small); bring up the monitor; open its pg_hba to the
-   two data-node IPs (the gotcha above).
-2. On `varro-pg` (primary): install pkgs, `pg_autoctl create postgres` adopting the
-   existing PGDATA → registers as primary (brief restart; collector pool reconnects,
-   agents disk-spool — same as any PG restart).
-3. On `varro-pg-2`: tear down the old manual slot/standby, `pg_autoctl create
-   postgres` → managed secondary (re-basebackups from the primary).
-4. Point both collectors' `VARRO_DB_URL` at the multi-host DSN; restart.
-5. `pg_autoctl perform failover` as a controlled drill; confirm collectors ride it.
+**Option A — adopt in place (CHOSEN; adopt-existing step VALIDATED 2026-10-13).**
+On a throwaway VM, `pg_autoctl create postgres --pgdata <existing populated
+PGDATA>` adopted a normal Debian `main` cluster **without wiping data** (seeded
+`prod_marker` row survived) and registered it as primary. Prod matches the test
+exactly: Debian `main` cluster, `PGDATA=/var/lib/postgresql/15/main`, port 5432.
+
+**TLS — the one prod-specific item (not the self-signed path).** Prod serves the
+Varro CA-signed cert (`/etc/postgresql/15/main/server.{crt,key}`) and collectors
+use `sslmode=verify-ca&sslrootcert=/etc/varro/pg-ca.crt`. So the adopt must pass
+pg_autoctl the EXISTING cert, NOT `--ssl-self-signed` (which would swap in a
+self-signed cert and break the collectors' verify-ca immediately):
+`--ssl-ca-file /etc/varro/pg-ca.crt --server-cert /etc/postgresql/15/main/server.crt --server-key /etc/postgresql/15/main/server.key --ssl-mode verify-ca`.
+Same cert + same port ⇒ collectors don't notice anything but the brief restart.
+
+Prod steps (recoverable — adopt preserves data; if TLS/anything misbehaves, stop
+`pgautofailover`, re-enable `postgresql@15-main`, restart → back to the pre-cutover
+state, since the single-host `VARRO_DB_URL` isn't changed until step 4):
+1. Create `varro-pg-mon` (e2-small); install pkgs; `pg_autoctl create monitor`;
+   open its pg_hba to `10.128.0.10/32` and `10.128.0.12/32` + reload (the gotcha).
+2. On `varro-pg` (primary): install pkgs; `systemctl stop/disable postgresql@15-main`;
+   `pg_autoctl create postgres --pgdata /var/lib/postgresql/15/main` with the
+   BYO-cert flags above → registers as primary (brief restart; collectors disk-spool).
+3. On `varro-pg-2`: drop the old manual `standby1` slot + standby config, then
+   `pg_autoctl create postgres` (same cert flags) → managed secondary (re-basebackups
+   from the primary; prod DB is small, ~minutes).
+4. Point both collectors' `VARRO_DB_URL` at the multi-host DSN
+   (`10.128.0.10,10.128.0.12 … target_session_attrs=read-write`, keep
+   `sslmode=verify-ca&sslrootcert=…`); restart varro-server on both.
+5. `pg_autoctl perform failover` as a controlled drill; confirm collectors ride it
+   (health 200 throughout, agents disk-spool the blip).
 
 **Option B — greenfield + migrate (cleanest, matches what was validated).** Stand
 up a fresh pg_auto_failover cluster (new monitor + 2 new data VMs), migrate data in
