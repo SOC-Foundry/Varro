@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.84.0] — 2026-10-13
+- Windows ETW process-start sensor (experimental, opt-in): `internal/etw` adds a real-time consumer of the Kernel-Process provider for short-lived process capture the polling sensor misses — the Windows analog of the Linux eBPF exec sensor. The agent tries ETW before the polling sensor, but **only when `VARRO_ETW=1` is set.** It's deliberately not default-on: it's hand-rolled ETW syscall code (x/sys/windows ships no ETW types) that hasn't run on a real Windows host, and a struct-layout bug there faults at the syscall (an uncatchable crash, not a graceful error). It's panic-contained and fails over to the polling sensor on any setup error; flip it to default-on after validating on Windows. See docs/agent-platforms.md.
+
 ## [v0.83.0] — 2026-10-13
 - Cross-platform log collection: the logs pillar now works beyond Linux journald — Windows agents collect the Event Log (System + Application, via `Get-WinEvent`) and macOS agents the unified log (via `log show --style ndjson`), both incremental by a cursor and feeding the same Logs view + log-based detections/hunts. Best-effort: cross-compiled and graceful-degrading (any failure disables capture rather than crashing, i.e. no worse than the previous "no logs"); field validation on real Windows/macOS hosts is a follow-up. See docs/agent-platforms.md.
 

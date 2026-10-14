@@ -21,6 +21,7 @@ import (
 
 	"github.com/soc-foundry/varro/internal/collect"
 	"github.com/soc-foundry/varro/internal/ebpf"
+	"github.com/soc-foundry/varro/internal/etw"
 	"github.com/soc-foundry/varro/internal/model"
 )
 
@@ -80,12 +81,16 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		c.SetExecTracer(execAdapter{tr})
 		c.SetConnTracer(connAdapter{tr})
 		log.Info("eBPF sensors active (exec + connect)")
+	} else if etr, eerr := etw.Start(); eerr == nil {
+		// Windows ETW exec sensor (opt-in, experimental — see internal/etw).
+		c.SetExecTracer(etr)
+		log.Info("ETW exec sensor active (Windows)")
 	} else {
-		// No kernel sensor (Windows/macOS, old/unprivileged Linux): fall back to
-		// a portable polling exec sensor so process-start signal still reaches the
-		// detection engine cross-platform.
+		// No kernel sensor (Windows without ETW, macOS, old/unprivileged Linux):
+		// fall back to a portable polling exec sensor so process-start signal still
+		// reaches the detection engine cross-platform.
 		c.SetExecTracer(collect.NewPollExecTracer())
-		log.Info("eBPF sensors unavailable; using portable polling exec sensor", "reason", err)
+		log.Info("deep exec sensor unavailable; using portable polling exec sensor", "ebpf", err, "etw", eerr)
 	}
 
 	// Best-effort passive DNS watcher; labels topology with real domains.
