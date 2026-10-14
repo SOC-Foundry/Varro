@@ -4,7 +4,6 @@ package etw
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 	"unsafe"
@@ -17,12 +16,13 @@ import (
 // Process provider's ProcessStart events, giving short-lived process capture the
 // polling sensor misses — the Windows analog of the Linux eBPF exec sensor.
 //
-// EXPERIMENTAL + OPT-IN (set VARRO_ETW=1). This is hand-rolled ETW syscall code
-// (x/sys/windows ships no ETW types) that has NOT been validated on a real
-// Windows host. A wrong struct layout faults at the ProcessTrace syscall — an
-// uncatchable crash, not a recoverable error — so it is deliberately NOT enabled
-// by default. Flip the `os.Getenv` gate below to default-on only after validating
-// on Windows. See docs/agent-platforms.md.
+// Default-on since v0.85.0: the ETW session (StartTraceW → EnableTraceEx2 →
+// OpenTraceW → ProcessTrace) is validated to open + run + close without crashing
+// on a real Windows runner in CI (internal/etw TestETWExercise on windows-latest).
+// Still defensive: any Start() failure (e.g. a non-admin host) returns an error so
+// the agent falls back to the polling sensor, and the event callback is
+// panic-contained. Event-field parsing (PID / image name) is best-effort and may
+// want a TDH-based refinement. See docs/agent-platforms.md.
 //
 // Kernel-Process provider GUID {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}.
 var kernelProcessGUID = windows.GUID{
@@ -159,10 +159,6 @@ var active *Tracer // the callback is a C function pointer; route to the live tr
 // VARRO_ETW; returns an error (→ caller falls back to the polling sensor) on any
 // setup failure.
 func Start() (*Tracer, error) {
-	if os.Getenv("VARRO_ETW") == "" {
-		return nil, fmt.Errorf("ETW sensor is opt-in (set VARRO_ETW=1); experimental, unvalidated")
-	}
-
 	name, _ := windows.UTF16FromString(sessionName)
 	// Buffer: properties struct + room for the session name at LoggerNameOffset.
 	propSize := uint32(unsafe.Sizeof(eventTraceProperties{}))

@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.85.0] — 2026-10-14
+- CI now runs the suite on real Windows + macOS runners, validating the previously cross-compile-only agent code: the Windows Event Log and macOS unified-log collectors execute on-OS (baseline + incremental), and the ETW session is exercised on `windows-latest`.
+- Windows ETW process-start sensor is now **default-on** (was opt-in in v0.84.0): the ETW session is CI-validated to open/run/close on a real Windows runner without the syscall-boundary crash I'd flagged, so the `VARRO_ETW` gate is removed. It stays defensive — any `Start()` failure (e.g. a non-admin host) falls back to the polling sensor, and the event callback is panic-contained. (Event-field parsing remains best-effort; a TDH-based decode is a documented follow-up.)
+
 ## [v0.84.0] — 2026-10-13
 - Windows ETW process-start sensor (experimental, opt-in): `internal/etw` adds a real-time consumer of the Kernel-Process provider for short-lived process capture the polling sensor misses — the Windows analog of the Linux eBPF exec sensor. The agent tries ETW before the polling sensor, but **only when `VARRO_ETW=1` is set.** It's deliberately not default-on: it's hand-rolled ETW syscall code (x/sys/windows ships no ETW types) that hasn't run on a real Windows host, and a struct-layout bug there faults at the syscall (an uncatchable crash, not a graceful error). It's panic-contained and fails over to the polling sensor on any setup error; flip it to default-on after validating on Windows. See docs/agent-platforms.md.
 

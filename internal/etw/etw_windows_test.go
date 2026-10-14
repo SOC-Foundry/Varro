@@ -8,18 +8,10 @@ import (
 	"time"
 )
 
-// TestETWGate verifies the opt-in gate: without VARRO_ETW, Start must refuse so
-// default Windows agents never touch the experimental ETW session.
-func TestETWGate(t *testing.T) {
-	os.Unsetenv("VARRO_ETW")
-	if _, err := Start(); err == nil {
-		t.Fatal("Start should return an error when VARRO_ETW is unset (opt-in gate)")
-	}
-}
-
-// TestETWExercise actually opens the ETW session and drains events. It only runs
-// when VARRO_ETW=1 (the CI runs it as a non-blocking step) — this is what would
-// surface a wrong struct layout / syscall fault on a real Windows host.
+// TestETWExercise opens the ETW session and drains events — this is what would
+// surface a wrong struct layout / syscall fault on a real Windows host. It only
+// runs when VARRO_ETW=1 (the CI runs it as a dedicated step) so the main suite
+// doesn't open a live kernel trace on every run.
 func TestETWExercise(t *testing.T) {
 	if os.Getenv("VARRO_ETW") == "" {
 		t.Skip("set VARRO_ETW=1 to exercise the live ETW session")

@@ -12,7 +12,7 @@ differ by OS. This documents what's active where, and the roadmap for full parit
 | Listening ports, established connections, sessions | ✅ | ✅ | ✅ |
 | Inventory (packages) | ✅ dpkg/rpm/pacman | ✅ (brew/pkgutil) | ✅ |
 | Logs | ✅ journald | ✅ unified log (best-effort) | ✅ Event Log (best-effort) |
-| **Process-start events** (`Execs`) | ✅ eBPF (short-lived) | ✅ polling (v0.80.0) | ✅ polling + ⚗️ ETW (opt-in, v0.84.0) |
+| **Process-start events** (`Execs`) | ✅ eBPF (short-lived) | ✅ polling (v0.80.0) | ✅ ETW, CI-validated (v0.85.0) + polling fallback |
 | **Short-lived outbound connects** (`Conns`) | ✅ eBPF | ◻️ roadmap | ◻️ roadmap |
 | File-integrity monitoring (FIM) | ✅ | ✅ | ✅ |
 | Host isolation (response action) | ✅ nft/iptables | ✅ pf | ✅ WFP/netsh |
@@ -56,18 +56,19 @@ True short-lived parity needs platform-native tracing, which is a larger effort
 and (for macOS) needs packaging/signing infrastructure this project's
 cross-compile release pipeline doesn't yet have:
 
-- **Windows: ETW** (Event Tracing for Windows) — **implemented, opt-in,
-  UNVALIDATED (v0.84.0).** `internal/etw/etw_windows.go` is a real-time consumer
+- **Windows: ETW** (Event Tracing for Windows) — **implemented + DEFAULT-ON +
+  CI-validated (v0.85.0).** `internal/etw/etw_windows.go` is a real-time consumer
   of the `Microsoft-Windows-Kernel-Process` provider's ProcessStart events
-  (StartTraceW → EnableTraceEx2 → OpenTraceW → ProcessTrace). The agent tries it
-  before the polling sensor, but ONLY when `VARRO_ETW=1` is set — because it is
-  hand-rolled ETW syscall code (x/sys/windows ships no ETW types) that has not run
-  on a real Windows host, and a wrong struct layout faults at the ProcessTrace
-  syscall (an uncatchable crash, not a recoverable error). **To make it default-on:
-  validate on a Windows host, fix the struct layouts / UserData parsing as needed
-  (esp. `eventTraceLogfile`'s `CurrentEvent`/`LogfileHeader` sizes and the
-  ProcessStart field offsets — ideally via TDH), then drop the `VARRO_ETW` gate in
-  `Start()`.** `-Network` (TCP-connect) events are a further follow-up.
+  (StartTraceW → EnableTraceEx2 → OpenTraceW → ProcessTrace). The CI `platform`
+  job runs `TestETWExercise` on a real `windows-latest` runner, which opens the
+  live session and drains without crashing — validating that the hand-rolled
+  struct layouts don't fault at the syscall boundary (the earlier concern). The
+  agent now uses ETW by default on Windows (before the polling sensor); any
+  `Start()` failure (e.g. a non-admin host) falls back to the poller, and the
+  event callback is panic-contained. **Remaining refinement (non-blocking):** the
+  ProcessStart UserData field parsing (PID / image name) is best-effort byte
+  scanning — a TDH-based decode would make the image-name extraction robust across
+  event versions. The `-Network` (TCP-connect) provider is a further follow-up.
 - **macOS: Endpoint Security Framework (ESF)** — `es_new_client` with
   `ES_EVENT_TYPE_NOTIFY_EXEC` / `..._CONNECT`. Requires cgo, a **signed system
   extension** with the `com.apple.developer.endpoint-security.client`
