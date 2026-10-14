@@ -163,6 +163,7 @@
   <div id="endpoints" style="flex:1; overflow-y:auto"></div>
   <nav class="nav">
     <div class="nav-label">Explore</div>
+    <a href="#" id="homeLink" class="navitem"><svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12.5" rx="2"/><path d="M8.5 20h7M12 17v3"/></svg>Endpoints</a>
     <a href="#" id="topoLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.1 11 15.9 7M8.1 13 15.9 17"/></svg>Topology</a>
     <a href="#" id="flowsLink" class="navitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>Flows &amp; talkers</a>
     <a href="#" id="logsLink" class="navitem"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h11"/></svg>Logs</a>
@@ -1036,7 +1037,28 @@ async function refreshEndpoints() {
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
   const otherView = adminMode || topoMode || dlMode || reportMode || flowsMode || logsMode || priorityMode || metricsMode || otlpMode || tracesMode || syntheticMode || dashboardsMode || huntMode || incidentsMode;
   $("empty").style.display = eps.length || otherView ? "none" : "block";
-  if (!otherView) { $("detail").style.display = eps.length && selected ? "block" : "none"; setActiveNav(null); }
+  if (!otherView) { $("detail").style.display = eps.length && selected ? "block" : "none"; setActiveNav("homeLink"); }
+}
+
+// goHome closes whatever Explore view is open and returns to the main device
+// dashboard (endpoint list + selected device). This is the nav counterpart to the
+// per-view "← back to endpoints" link, so there's always a home tab to click.
+function goHome() {
+  if (typeof topoMode !== "undefined" && topoMode) showTopo(false);
+  showAdmin(false);
+  if (dlMode) showDownload(false);
+  if (reportMode) { reportMode = false; $("reportView").style.display = "none"; }
+  if (flowsMode) { flowsMode = false; $("flowsView").style.display = "none"; cancelAnimationFrame(flowsAnim); flowsAnim = null; }
+  if (logsMode) hideLogs();
+  if (priorityMode) hidePriority();
+  if (metricsMode) hideMetrics();
+  if (otlpMode) hideOtlp();
+  if (tracesMode) hideTraces();
+  if (syntheticMode) hideSynthetic();
+  if (dashboardsMode) hideDashboards();
+  if (huntMode) hideHunt();
+  if (incidentsMode) hideIncidents();
+  refreshEndpoints();
 }
 
 // setActiveNav highlights the current view in the sidebar nav (null clears it).
@@ -3475,6 +3497,7 @@ let topoMode = false, dlMode = false, topoNodes = [], topoEdges = [], topoAnim =
 let blastSet = null; // attack-path / blast-radius: set of node ids reachable from the selected host
 let dragNode = null;
 
+$("homeLink").onclick = e => { e.preventDefault(); closeSidebar(); goHome(); };
 $("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true); };
 $("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
 
