@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.81.0] — 2026-10-13
+- Fix (Flows & talkers map): dragging destination dots now works — the animation loop was recomputing its change-signature with a different formula than the layout stored, so it rebuilt (and replaced) the dots every frame, discarding the one being dragged so it snapped back. Also, same-zone destinations are now fanned out on a sunflower/phyllotaxis layout instead of piling onto a single ring, so dense clusters (e.g. many US destinations) are readable without dragging.
+
 ## [v0.80.0] — 2026-10-13
 - Cross-platform process-start sensing: Windows and macOS agents (and old/unprivileged Linux) now feed process-start events to the detection engine via a portable polling sensor that diffs the process table each sample — previously only Linux (eBPF) populated this, so custom/built-in detection rules on the process stream now work on every platform. (Most detections already worked cross-platform via gopsutil processes/connections/ports; this adds the process-start signal.) The polling sensor can't catch sub-interval processes the way the Linux eBPF sensor does; true kernel-native deep sensors — Windows ETW, macOS Endpoint Security Framework — remain a documented roadmap item (macOS ESF needs Apple-signed system-extension packaging). See docs/agent-platforms.md.
 

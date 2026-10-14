@@ -1897,13 +1897,24 @@ function buildFlowDots(w, h) {
   for (const z of Object.keys(byZone)) {
     const members = byZone[z].sort((a, b) => metric(b) - metric(a));
     const [bx, by] = anchorOf(z), k = members.length;
-    const ring = k > 1 ? Math.min(14 + k * 2.5, 54) : 0;
+    // Fan same-zone members out on a phyllotaxis (sunflower) spiral so a big
+    // cluster (e.g. many US destinations) stays spread + readable instead of
+    // piling onto one ring. User drags still override via the prev-position map.
+    const golden = Math.PI * (3 - Math.sqrt(5));
     members.forEach((t, i) => {
-      const old = prev.get(t.dest), ang = (i / k) * Math.PI * 2 - Math.PI / 2;
+      const old = prev.get(t.dest);
+      let x, y;
+      if (old) {
+        x = old.x; y = old.y;
+      } else if (k === 1) {
+        x = bx; y = by;
+      } else {
+        const rad = 15 * Math.sqrt(i + 0.6), ang = i * golden;
+        x = bx + Math.cos(ang) * rad;
+        y = by + Math.sin(ang) * rad;
+      }
       dots.push({
-        dest: t.dest, t, zone: z,
-        x: old ? old.x : bx + Math.cos(ang) * ring,
-        y: old ? old.y : by + Math.sin(ang) * ring,
+        dest: t.dest, t, zone: z, x, y,
         pinned: old ? old.pinned : false,
         r: 3 + 9 * Math.sqrt(metric(t) / flowMaxM), m: metric(t),
       });
@@ -2026,7 +2037,9 @@ function tickFlowMap() {
 
   // Destinations by country centroid (fanned on a ring), with persistent,
   // user-draggable positions. Rebuild only when the destination set changes.
-  const sig = flowsData.filter(t => t.country && COUNTRY_LL[t.country]).map(t => t.dest).sort().join("|");
+  // Must match buildFlowDots' flowDotsSig exactly, or the dots rebuild every
+  // frame — which discards the object being dragged (drag "snaps back").
+  const sig = flowsData.filter(t => t.cdn || (t.country && COUNTRY_LL[t.country])).map(t => t.dest + (t.cdn ? "·c" : "")).sort().join("|");
   if (sig !== flowDotsSig || !flowDots.length) buildFlowDots(w, h);
   const dots = flowDots, maxM = flowMaxM;
 
