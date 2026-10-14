@@ -39,6 +39,37 @@ jobs:
             GOOS=${t%/*} GOARCH=${t#*/} go build ./... || exit 1
           done
 
+  # Run the suite on real Windows + macOS so the platform-specific agent code
+  # (ETW sensor, Windows Event Log + macOS unified-log collectors) is actually
+  # exercised, not just cross-compiled.
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test (agent + collect + model + etw on this OS)
+        run: go test -count=1 ./internal/collect/... ./internal/agent/... ./internal/model/... ./internal/etw/...
+      # Exercise the real ETW session on Windows (opt-in path). Non-blocking:
+      # surfaces struct-layout / syscall problems without failing the whole run
+      # while the sensor is experimental.
+      - name: ETW session smoke (Windows, opt-in)
+        if: matrix.os == 'windows-latest'
+        continue-on-error: true
+        env:
+          VARRO_ETW: '1'
+        run: go test -count=1 -run ETWExercise ./internal/etw/...
+
   govulncheck:
     runs-on: ubuntu-latest
     steps:
