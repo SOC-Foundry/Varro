@@ -14,15 +14,24 @@ const incidentWindow = 2 * time.Hour
 
 var incSevRank = map[string]int{"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
+// SignalResult reports how AttachSignal affected an incident, so the caller can
+// notify on a newly-opened incident or an escalation to CRITICAL.
+type SignalResult struct {
+	ID        int64
+	Created   bool // a new incident was opened
+	Escalated bool // an existing incident's severity rose to CRITICAL
+}
+
 // AttachSignal correlates an alert/detection into an incident: it appends to the
 // endpoint's active incident (if one was updated within incidentWindow) or opens
-// a new one, raising severity to the max seen. Returns the incident id.
-func (s *Store) AttachSignal(ctx context.Context, orgID, endpointID, hostname, kind, severity, title, message string) (int64, error) {
+// a new one, raising severity to the max seen.
+func (s *Store) AttachSignal(ctx context.Context, orgID, endpointID, hostname, kind, severity, title, message string) (SignalResult, error) {
 	if severity == "" {
 		severity = "MEDIUM"
 	}
 	now := time.Now()
 	cut := now.Add(-incidentWindow).Unix()
+	var res SignalResult
 
 	var id int64
 	var curSev string
@@ -33,7 +42,7 @@ ORDER BY id DESC LIMIT 1`, orgID, endpointID, cut).Scan(&id, &curSev)
 	if err == sql.ErrNoRows {
 		id = 0
 	} else if err != nil {
-		return 0, err
+		return res, err
 	}
 
 	if id == 0 {
@@ -41,22 +50,27 @@ ORDER BY id DESC LIMIT 1`, orgID, endpointID, cut).Scan(&id, &curSev)
 INSERT INTO incidents (org_id, endpoint_id, hostname, title, status, severity, created_at, updated_at)
 VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`, orgID, endpointID, hostname, title, severity, now.Unix(), now.Unix())
 		if err != nil {
-			return 0, err
+			return res, err
 		}
+		res.Created = true
 	} else {
 		sev := curSev
 		if incSevRank[severity] > incSevRank[curSev] {
 			sev = severity
 		}
+		if sev == "CRITICAL" && curSev != "CRITICAL" {
+			res.Escalated = true
+		}
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE incidents SET updated_at = ?, severity = ? WHERE id = ?`, now.Unix(), sev, id); err != nil {
-			return 0, err
+			return res, err
 		}
 	}
+	res.ID = id
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO incident_items (incident_id, ts, kind, actor, message) VALUES (?, ?, ?, '', ?)`,
 		id, now.Unix(), kind, message)
-	return id, err
+	return res, err
 }
 
 // IncidentOrg returns the org an incident belongs to (for scope checks), or "".

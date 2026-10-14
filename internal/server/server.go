@@ -203,6 +203,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/orgs/{id}/playbooks", s.handlePlaybookCreate)
 	mux.HandleFunc("PUT /api/v1/orgs/{id}/playbooks/{pbID}", s.handlePlaybookUpdate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/playbooks/{pbID}", s.handlePlaybookDelete)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/report-schedule", s.handleReportSchedule)
+	mux.HandleFunc("PUT /api/v1/orgs/{id}/report-schedule", s.handleSetReportSchedule)
 	mux.HandleFunc("GET /api/v1/orgs/{id}/silences", s.handleSilencesList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/silences", s.handleSilenceCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/silences/{silID}", s.handleSilenceDelete)
@@ -233,6 +235,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.alertLoop(ctx)
 	go s.topoSnapshotLoop(ctx)
 	go s.proberLoop(ctx)
+	go s.digestLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}

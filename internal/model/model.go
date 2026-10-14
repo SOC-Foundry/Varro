@@ -559,6 +559,15 @@ type SavedView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ReportSchedule is a per-org recurring email digest configuration.
+type ReportSchedule struct {
+	OrgID      string    `json:"org_id"`
+	Enabled    bool      `json:"enabled"`
+	Cadence    string    `json:"cadence"` // daily|weekly
+	Recipients []string  `json:"recipients"`
+	LastSent   time.Time `json:"last_sent,omitempty"`
+}
+
 // Incident statuses.
 const (
 	IncidentOpen     = "open"

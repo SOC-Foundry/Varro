@@ -2,10 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/soc-foundry/varro/internal/model"
+	"github.com/soc-foundry/varro/internal/store"
 )
 
 // incidentInScope resolves the incident id, verifies the caller may read its org,
@@ -138,6 +140,29 @@ func (s *Server) handleIncidentNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"added": true})
+}
+
+// notifyIncident fires a notification (global + per-org routes) when an incident
+// opens or escalates. Incidents group signals, so this is far less noisy than
+// per-alert paging.
+func (s *Server) notifyIncident(res store.SignalResult, orgID, hostname, severity, title string) {
+	if !res.Created && !res.Escalated {
+		return
+	}
+	reason := "opened"
+	if res.Escalated {
+		reason = "escalated to CRITICAL"
+		severity = "CRITICAL"
+	}
+	routeSev := model.SevWarning
+	switch severity {
+	case "CRITICAL":
+		routeSev = model.SevCritical
+	case "LOW":
+		routeSev = model.SevInfo
+	}
+	msg := fmt.Sprintf("incident #%d %s — %s (%s on %s)", res.ID, reason, title, severity, hostname)
+	s.notify(orgID, routeSev, "incident", "incident", hostname, msg)
 }
 
 // incidentSevFromAlert maps an alert's routing severity to the incident scale.

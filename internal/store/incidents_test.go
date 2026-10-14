@@ -12,21 +12,28 @@ func TestIncidentCorrelation(t *testing.T) {
 	ctx := context.Background()
 
 	// Two signals for the same endpoint within the window → one incident, 2 items,
-	// severity raised to the max.
-	id1, err := s.AttachSignal(ctx, "org1", "host-a", "hostA", "alert", "MEDIUM", "Alert: high-cpu", "cpu high")
+	// severity raised to the max (and the second escalates it to CRITICAL).
+	r1, err := s.AttachSignal(ctx, "org1", "host-a", "hostA", "alert", "MEDIUM", "Alert: high-cpu", "cpu high")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := s.AttachSignal(ctx, "org1", "host-a", "hostA", "detection", "CRITICAL", "Detection: reverse_shell", "nc out")
+	if !r1.Created {
+		t.Error("first signal should open a new incident")
+	}
+	r2, err := s.AttachSignal(ctx, "org1", "host-a", "hostA", "detection", "CRITICAL", "Detection: reverse_shell", "nc out")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id1 != id2 {
-		t.Fatalf("same-endpoint signals should share an incident: %d vs %d", id1, id2)
+	if r1.ID != r2.ID {
+		t.Fatalf("same-endpoint signals should share an incident: %d vs %d", r1.ID, r2.ID)
 	}
+	if r2.Created || !r2.Escalated {
+		t.Errorf("second signal should escalate (not create): created=%v escalated=%v", r2.Created, r2.Escalated)
+	}
+	id1 := r1.ID
 	// A different endpoint → separate incident.
-	id3, _ := s.AttachSignal(ctx, "org1", "host-b", "hostB", "detection", "HIGH", "Detection: miner", "xmrig")
-	if id3 == id1 {
+	r3, _ := s.AttachSignal(ctx, "org1", "host-b", "hostB", "detection", "HIGH", "Detection: miner", "xmrig")
+	if r3.ID == id1 {
 		t.Fatal("different endpoint should get a separate incident")
 	}
 
@@ -54,8 +61,8 @@ func TestIncidentCorrelation(t *testing.T) {
 	if err := s.SetIncidentStatus(ctx, id1, model.IncidentResolved, "analyst@x"); err != nil {
 		t.Fatal(err)
 	}
-	id4, _ := s.AttachSignal(ctx, "org1", "host-a", "hostA", "alert", "LOW", "Alert: again", "x")
-	if id4 == id1 {
+	r4, _ := s.AttachSignal(ctx, "org1", "host-a", "hostA", "alert", "LOW", "Alert: again", "x")
+	if r4.ID == id1 || !r4.Created {
 		t.Fatal("signal after resolve should open a new incident")
 	}
 	if d, _ := s.IncidentDetail(ctx, id1); d.Status != model.IncidentResolved || d.ResolvedAt == nil {

@@ -254,8 +254,11 @@ func (s *Server) setAlertState(ctx context.Context, rule string, ep model.Endpoi
 			s.log.Error("fire alert", "rule", rule, "error", err)
 			return
 		}
-		if _, err := s.store.AttachSignal(ctx, ep.OrgID, ep.ID, ep.Hostname, "alert", incidentSevFromAlert(rule), "Alert: "+rule, message); err != nil {
+		sev := incidentSevFromAlert(rule)
+		if res, err := s.store.AttachSignal(ctx, ep.OrgID, ep.ID, ep.Hostname, "alert", sev, "Alert: "+rule, message); err != nil {
 			s.log.Error("incident attach (alert)", "rule", rule, "error", err)
+		} else {
+			s.notifyIncident(res, ep.OrgID, ep.Hostname, sev, "Alert: "+rule)
 		}
 		s.log.Warn("ALERT firing", "rule", rule, "endpoint", ep.Hostname, "message", message)
 		if s.alertSilenced(ctx, ep.OrgID, rule, ep.ID) {

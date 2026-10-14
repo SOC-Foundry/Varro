@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.82.0] — 2026-10-13
+- Incident notifications: a newly-opened incident (or one escalating to CRITICAL) now notifies via the org's routes + the global webhook/Slack/email — incidents previously formed silently. Because incidents group related signals, this pages far less than per-alert notifications did.
+- Scheduled report digests: a per-org recurring email digest (daily or weekly) summarizing fleet posture, vulnerabilities, patching, and open/critical incidents. Configured in Admin → Scheduled report digest. `GET/PUT /api/v1/orgs/{id}/report-schedule`; a leader-only hourly scheduler sends due digests via the existing mail transport.
+
 ## [v0.81.0] — 2026-10-13
 - Fix (Flows & talkers map): dragging destination dots now works — the animation loop was recomputing its change-signature with a different formula than the layout stored, so it rebuilt (and replaced) the dots every frame, discarding the one being dragged so it snapped back. Also, same-zone destinations are now fanned out on a sunflower/phyllotaxis layout instead of piling onto a single ring, so dense clusters (e.g. many US destinations) are readable without dragging.
 

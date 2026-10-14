@@ -734,6 +734,16 @@
         </div>
         <div id="silErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
       </div>
+      <div class="card wide"><h3>Scheduled report digest</h3>
+        <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Email this org a recurring digest — fleet posture, vulnerabilities, patching, and open incidents. Requires an email transport configured on the collector.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+          <label style="font-size:13px"><input type="checkbox" id="digestEnabled"> enabled</label>
+          <select id="digestCadence" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="weekly">weekly</option><option value="daily">daily</option></select>
+          <input id="digestRecipients" placeholder="recipients (comma-separated emails)" style="flex:1; min-width:240px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12.5px">
+          <button class="abtn" id="digestSaveBtn">Save</button>
+        </div>
+        <div id="digestMsg" style="font-size:12px; margin-top:6px"></div>
+      </div>
       <div class="card wide"><h3>Audit log <span class="now" id="auditNow"></span></h3>
         <div style="overflow-x:auto; max-height:320px; overflow-y:auto"><table>
           <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
@@ -1307,6 +1317,7 @@ function setupAdmin(me) {
   $("importSigmaBtn").onclick = importSigma;
   $("addPbBtn").onclick = addPlaybook;
   $("addSilBtn").onclick = addSilence;
+  $("digestSaveBtn").onclick = saveDigest;
   $("mintBtn").onclick = async () => {
     try {
       const out = await postJSON(`/api/v1/orgs/${encodeURIComponent(sel.value)}/tokens`,
@@ -1377,6 +1388,7 @@ async function loadAdminOrg() {
     loadDetections(org);
     loadPlaybooks(org);
     loadSilences(org);
+    loadDigest(org);
     loadAudit();
   } catch (e) { oops(e); }
 }
@@ -1583,6 +1595,28 @@ async function addSilence() {
   const body = { name: $("silName").value.trim(), match_rule: $("silRule").value.trim(), match_endpoint: $("silEndpoint").value.trim(), hours: parseInt($("silHours").value, 10) || 1 };
   try { await postJSON(`/api/v1/orgs/${encodeURIComponent(org)}/silences`, body); $("silName").value = ""; $("silRule").value = ""; $("silEndpoint").value = ""; loadSilences(org); }
   catch (e) { $("silErr").textContent = e.message; }
+}
+
+/* ---- scheduled report digest (admin) ---- */
+async function loadDigest(org) {
+  $("digestMsg").textContent = "";
+  try {
+    const sc = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/report-schedule`);
+    $("digestEnabled").checked = !!sc.enabled;
+    $("digestCadence").value = sc.cadence || "weekly";
+    $("digestRecipients").value = (sc.recipients || []).join(", ");
+    if (sc.last_sent) $("digestMsg").innerHTML = `<span style="color:var(--dim)">last sent ${esc(new Date(sc.last_sent).toLocaleString())}</span>`;
+  } catch (e) { $("digestMsg").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+async function saveDigest() {
+  const org = $("adminOrgSelect").value;
+  $("digestMsg").textContent = "";
+  const recipients = $("digestRecipients").value.split(",").map(s => s.trim()).filter(Boolean);
+  const body = { enabled: $("digestEnabled").checked, cadence: $("digestCadence").value, recipients };
+  try {
+    await (async () => { const r = await fetch(`/api/v1/orgs/${encodeURIComponent(org)}/report-schedule`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(await r.text()); })();
+    $("digestMsg").innerHTML = `<span style="color:var(--green)">saved</span>`;
+  } catch (e) { $("digestMsg").innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
 }
 
 async function saveFIM() {

@@ -255,6 +255,13 @@ CREATE TABLE IF NOT EXISTS incident_items (
 	message     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_incident_items ON incident_items(incident_id, id);
+CREATE TABLE IF NOT EXISTS report_schedules (
+	org_id     TEXT PRIMARY KEY,
+	enabled    INTEGER NOT NULL DEFAULT 0,
+	cadence    TEXT NOT NULL DEFAULT 'weekly',
+	recipients TEXT NOT NULL DEFAULT '',
+	last_sent  INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS otlp_metrics (
 	id      INTEGER PRIMARY KEY,
 	org_id  TEXT NOT NULL,

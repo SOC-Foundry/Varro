@@ -83,8 +83,10 @@ func (s *Server) fireDetection(ctx context.Context, orgID string, snap *model.Sn
 	s.log.Warn("behavioral detection", "rule", rule, "severity", severity, "endpoint", snap.Hostname, "detail", msg)
 	s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventDetection, Message: full}})
 	s.siemForward(orgID, snap.Hostname, "detection", severity, mitre, full)
-	if _, err := s.store.AttachSignal(ctx, orgID, snap.AgentID, snap.Hostname, "detection", severity, "Detection: "+rule, full); err != nil {
+	if res, err := s.store.AttachSignal(ctx, orgID, snap.AgentID, snap.Hostname, "detection", severity, "Detection: "+rule, full); err != nil {
 		s.log.Error("incident attach (detection)", "rule", rule, "error", err)
+	} else {
+		s.notifyIncident(res, orgID, snap.Hostname, severity, "Detection: "+rule)
 	}
 	s.runPlaybooks(ctx, orgID, snap, rule, severity)
 }
