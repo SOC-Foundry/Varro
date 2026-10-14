@@ -11,7 +11,7 @@ differ by OS. This documents what's active where, and the roadmap for full parit
 | Host metrics (CPU/mem/disk/net/procs) | ✅ gopsutil | ✅ | ✅ |
 | Listening ports, established connections, sessions | ✅ | ✅ | ✅ |
 | Inventory (packages) | ✅ dpkg/rpm/pacman | ✅ (brew/pkgutil) | ✅ |
-| Logs | ✅ journald | ◻️ (none yet) | ◻️ (none yet) |
+| Logs | ✅ journald | ✅ unified log (best-effort) | ✅ Event Log (best-effort) |
 | **Process-start events** (`Execs`) | ✅ eBPF (short-lived) | ✅ **polling** (v0.80.0) | ✅ **polling** (v0.80.0) |
 | **Short-lived outbound connects** (`Conns`) | ✅ eBPF | ◻️ roadmap | ◻️ roadmap |
 | File-integrity monitoring (FIM) | ✅ | ✅ | ✅ |
@@ -35,6 +35,20 @@ process stream is now fed on all platforms.
 Limitation vs eBPF: it catches every process still alive at the next poll, but
 not one that starts *and* exits within a single sample interval. That's inherent
 to polling.
+
+## v0.83.0 — cross-platform log collection
+
+`CollectLogs` now has per-OS implementations behind build tags:
+- **Windows** (`logs_windows.go`): PowerShell `Get-WinEvent` over System +
+  Application, incremental by a timestamp cursor, parsed from compact JSON.
+- **macOS** (`logs_darwin.go`): `log show --style ndjson` over the unified log,
+  incremental by a timestamp cursor, capped to the newest N.
+
+Both are **best-effort**: they cross-compile and, per the agent's contract, any
+failure (missing command, parse error) disables log capture gracefully rather
+than crashing — so the worst case equals the previous "no logs" behavior. They
+still need field validation on real Windows/macOS hosts (exact `log show`
+predicate, `Get-WinEvent` field shapes, cursor boundary behavior).
 
 ## Roadmap — kernel-native deep sensors
 

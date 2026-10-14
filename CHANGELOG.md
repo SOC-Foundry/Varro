@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.83.0] — 2026-10-13
+- Cross-platform log collection: the logs pillar now works beyond Linux journald — Windows agents collect the Event Log (System + Application, via `Get-WinEvent`) and macOS agents the unified log (via `log show --style ndjson`), both incremental by a cursor and feeding the same Logs view + log-based detections/hunts. Best-effort: cross-compiled and graceful-degrading (any failure disables capture rather than crashing, i.e. no worse than the previous "no logs"); field validation on real Windows/macOS hosts is a follow-up. See docs/agent-platforms.md.
+
 ## [v0.82.0] — 2026-10-13
 - Incident notifications: a newly-opened incident (or one escalating to CRITICAL) now notifies via the org's routes + the global webhook/Slack/email — incidents previously formed silently. Because incidents group related signals, this pages far less than per-alert notifications did.
 - Scheduled report digests: a per-org recurring email digest (daily or weekly) summarizing fleet posture, vulnerabilities, patching, and open/critical incidents. Configured in Admin → Scheduled report digest. `GET/PUT /api/v1/orgs/{id}/report-schedule`; a leader-only hourly scheduler sends due digests via the existing mail transport.
