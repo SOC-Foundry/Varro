@@ -550,6 +550,34 @@ type OTLPTraceSummary struct {
 	Error      bool    `json:"error,omitempty"`
 }
 
+// ServiceEdge is one caller→callee dependency derived from spans whose parent
+// runs in a different service: the parent's service called the child's service.
+// Metrics are measured on the callee (child) span — the downstream work.
+type ServiceEdge struct {
+	Caller    string  `json:"caller"`
+	Callee    string  `json:"callee"`
+	Calls     int     `json:"calls"`
+	Errors    int     `json:"errors"`
+	ErrorRate float64 `json:"error_rate"` // 0..1
+	P50Ms     float64 `json:"p50_ms"`
+	P95Ms     float64 `json:"p95_ms"`
+}
+
+// ServiceNode is a vertex in the dependency graph with its in/out call totals.
+type ServiceNode struct {
+	Service  string `json:"service"`
+	Incoming int    `json:"incoming"` // calls received (as callee)
+	Outgoing int    `json:"outgoing"` // calls made (as caller)
+	Errors   int    `json:"errors"`   // errors on calls it received
+	Root     bool   `json:"root"`     // has root (parent-less) spans = entrypoint
+}
+
+// ServiceGraph is the service-to-service dependency map over a window.
+type ServiceGraph struct {
+	Nodes []ServiceNode `json:"nodes"`
+	Edges []ServiceEdge `json:"edges"`
+}
+
 // SavedView is a named, persisted metric-explorer configuration (its spec is an
 // opaque JSON blob the dashboard interprets: metric, endpoints, time range).
 type SavedView struct {

@@ -572,6 +572,13 @@
         <tbody id="svcRows"></tbody>
       </table>
     </div>
+    <h3 style="font-size:13px; margin:4px 0 6px">Service dependency map <span style="color:var(--dim); font-weight:400">· caller → callee, from span parentage</span></h3>
+    <div class="card" style="margin-bottom:14px; padding:0">
+      <div id="depGraphWrap" style="overflow-x:auto">
+        <svg id="depGraph" style="display:block; width:100%; min-width:560px; height:300px"></svg>
+      </div>
+      <div id="depGraphEmpty" style="display:none; padding:18px; color:var(--dim); font-size:13px">No cross-service calls in this window. A dependency edge needs a span whose parent runs in a different service (set <code>service.name</code> on each service and propagate trace context between them).</div>
+    </div>
     <h3 style="font-size:13px; margin:4px 0 6px">Recent traces</h3>
     <div class="card" style="overflow-x:auto">
       <table style="width:100%; min-width:640px">
@@ -3008,6 +3015,122 @@ async function loadTraces() {
     const r = await getJSON(orgQ("/api/v1/otlp/services?minutes=" + tracesWindow));
     renderServiceHealth(r.services || []);
   } catch (e) { $("svcRows").innerHTML = `<tr><td colspan="6" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+  try {
+    const r = await getJSON(orgQ("/api/v1/otlp/graph?minutes=" + tracesWindow));
+    renderDepGraph(r.nodes || [], r.edges || []);
+  } catch (e) { renderDepGraph([], []); }
+}
+
+// renderDepGraph lays out services in columns by their longest distance from a
+// root (entrypoint) service, then draws caller→callee edges. Edge color + width
+// encode traffic and error rate; hovering an edge shows calls / error % / p95.
+function renderDepGraph(nodes, edges) {
+  const svg = $("depGraph"), empty = $("depGraphEmpty");
+  if (!edges.length) { svg.style.display = "none"; empty.style.display = "block"; return; }
+  svg.style.display = "block"; empty.style.display = "none";
+  const NS = "http://www.w3.org/2000/svg";
+  const names = nodes.map(n => n.service);
+  const nodeByName = {}; nodes.forEach(n => nodeByName[n.service] = n);
+
+  // Column = longest path from a root. Roots (entrypoints) start at 0; anything
+  // only reached downstream gets pushed right. Cycle-safe via a visit cap.
+  const col = {}; names.forEach(n => col[n] = 0);
+  const indeg = {}; names.forEach(n => indeg[n] = 0);
+  edges.forEach(e => { if (e.caller !== e.callee) indeg[e.callee] = (indeg[e.callee] || 0) + 1; });
+  for (let pass = 0; pass < names.length + 2; pass++) {
+    let changed = false;
+    edges.forEach(e => {
+      if (col[e.callee] < col[e.caller] + 1) { col[e.callee] = col[e.caller] + 1; changed = true; }
+    });
+    if (!changed) break;
+  }
+  // Services with no incoming edges but that make calls sit in column 0.
+  names.forEach(n => { if (indeg[n] === 0) col[n] = 0; });
+
+  const cols = {}; names.forEach(n => { (cols[col[n]] = cols[col[n]] || []).push(n); });
+  const colKeys = Object.keys(cols).map(Number).sort((a, b) => a - b);
+  const colGap = 200, rowGap = 72, padX = 90, padY = 46;
+  const maxRows = Math.max(1, ...colKeys.map(k => cols[k].length));
+  const W = padX * 2 + (colKeys.length - 1) * colGap + 140;
+  const H = Math.max(180, padY * 2 + (maxRows - 1) * rowGap + 40);
+  const pos = {};
+  colKeys.forEach((k, ci) => {
+    const list = cols[k];
+    list.forEach((n, ri) => {
+      const colH = (list.length - 1) * rowGap;
+      pos[n] = { x: padX + ci * colGap, y: H / 2 - colH / 2 + ri * rowGap };
+    });
+  });
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+  svg.innerHTML = "";
+  const maxCalls = Math.max(...edges.map(e => e.calls), 1);
+  const accent = "#58a6ff", mono = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+  // Arrowhead marker.
+  const defs = document.createElementNS(NS, "defs");
+  defs.innerHTML = `<marker id="depArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4b5563"/></marker>`;
+  svg.appendChild(defs);
+
+  const line = (a, b) => `M${a.x} ${a.y} C ${a.x + colGap * 0.4} ${a.y}, ${b.x - colGap * 0.4} ${b.y}, ${b.x} ${b.y}`;
+  edges.forEach(e => {
+    const a = pos[e.caller], b = pos[e.callee];
+    if (!a || !b) return;
+    const er = e.error_rate;
+    const stroke = er >= 0.05 ? "#e5484d" : er >= 0.01 ? "#f5a623" : "#3fb950";
+    const wNorm = 1 + Math.round(4 * e.calls / maxCalls);
+    const p = document.createElementNS(NS, "path");
+    // nudge endpoints to node-box edges so the arrow isn't hidden under the box
+    const start = { x: a.x + 56, y: a.y }, end = { x: b.x - 56, y: b.y };
+    p.setAttribute("d", line(start, end));
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", stroke);
+    p.setAttribute("stroke-width", wNorm);
+    p.setAttribute("opacity", "0.75");
+    p.setAttribute("marker-end", "url(#depArrow)");
+    const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + "s" : v.toFixed(0) + "ms";
+    const tt = document.createElementNS(NS, "title");
+    tt.textContent = `${e.caller} → ${e.callee}\n${e.calls} call${e.calls === 1 ? "" : "s"} · ${(er * 100).toFixed(1)}% errors · p50 ${ms(e.p50_ms)} · p95 ${ms(e.p95_ms)}`;
+    p.appendChild(tt);
+    svg.appendChild(p);
+  });
+
+  names.forEach(n => {
+    const p = pos[n], nd = nodeByName[n] || {};
+    if (!p) return;
+    const g = document.createElementNS(NS, "g");
+    const errRate = nd.incoming ? (nd.errors || 0) / nd.incoming : 0;
+    const hot = errRate >= 0.05;
+    const rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", p.x - 56); rect.setAttribute("y", p.y - 17);
+    rect.setAttribute("width", 112); rect.setAttribute("height", 34);
+    rect.setAttribute("rx", 7);
+    rect.setAttribute("fill", "#161b22");
+    rect.setAttribute("stroke", hot ? "#e5484d" : nd.root ? accent : "#30363d");
+    rect.setAttribute("stroke-width", nd.root ? 2 : 1);
+    g.appendChild(rect);
+    const label = document.createElementNS(NS, "text");
+    label.setAttribute("x", p.x); label.setAttribute("y", p.y - 1);
+    label.setAttribute("text-anchor", "middle");
+    label.setAttribute("font-family", mono);
+    label.setAttribute("font-size", "12");
+    label.setAttribute("fill", "#e6edf3");
+    let short = n.length > 15 ? n.slice(0, 14) + "…" : n;
+    label.textContent = short;
+    g.appendChild(label);
+    const sub = document.createElementNS(NS, "text");
+    sub.setAttribute("x", p.x); sub.setAttribute("y", p.y + 11);
+    sub.setAttribute("text-anchor", "middle");
+    sub.setAttribute("font-size", "9.5");
+    sub.setAttribute("fill", "#8b949e");
+    sub.textContent = `${nd.incoming || 0} in · ${nd.outgoing || 0} out`;
+    g.appendChild(sub);
+    const tt = document.createElementNS(NS, "title");
+    tt.textContent = `${n}${nd.root ? " (entrypoint)" : ""}\nreceives ${nd.incoming || 0} · makes ${nd.outgoing || 0} calls${nd.incoming ? ` · ${(errRate * 100).toFixed(1)}% errors` : ""}`;
+    g.appendChild(tt);
+    svg.appendChild(g);
+  });
 }
 
 function renderServiceHealth(svcs) {

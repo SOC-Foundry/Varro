@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.86.0] — 2026-10-13
+- Service dependency map (Traces view): a caller→callee graph derived from span parentage — whenever a span's parent runs in a different `service.name`, that's a call from the parent's service to the child's service. Edges show call counts, error rate (color), and p50/p95 latency on hover; nodes show incoming/outgoing call totals, mark entrypoint (root-span) services, and highlight services serving a high error rate. Laid out in columns by distance from an entrypoint. `GET /api/v1/otlp/graph?minutes=` (read-scoped, org-filtered); metrics measured on the callee (downstream) span.
+
 ## [v0.85.0] — 2026-10-14
 - CI now runs the suite on real Windows + macOS runners, validating the previously cross-compile-only agent code: the Windows Event Log and macOS unified-log collectors execute on-OS (baseline + incremental), and the ETW session is exercised on `windows-latest`.
 - Windows ETW process-start sensor is now **default-on** (was opt-in in v0.84.0): the ETW session is CI-validated to open/run/close on a real Windows runner without the syscall-boundary crash I'd flagged, so the `VARRO_ETW` gate is removed. It stays defensive — any `Start()` failure (e.g. a non-admin host) falls back to the polling sensor, and the event callback is panic-contained. (Event-field parsing remains best-effort; a TDH-based decode is a documented follow-up.)

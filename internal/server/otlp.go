@@ -295,6 +295,32 @@ func (s *Server) handleOTLPServices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"minutes": minutes, "services": svcs})
 }
 
+// handleOTLPServiceGraph serves the service-to-service dependency map derived
+// from span parent/child service relationships (read-scoped).
+func (s *Server) handleOTLPServiceGraph(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.requireReadScope(w, r)
+	if !ok {
+		return
+	}
+	minutes := 60
+	if v, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && v > 0 && v <= 10080 {
+		minutes = v
+	}
+	since := time.Now().Add(-time.Duration(minutes) * time.Minute).Unix()
+	g, err := s.store.OTLPServiceGraph(r.Context(), scope, since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if g.Nodes == nil {
+		g.Nodes = []model.ServiceNode{}
+	}
+	if g.Edges == nil {
+		g.Edges = []model.ServiceEdge{}
+	}
+	writeJSON(w, map[string]any{"minutes": minutes, "nodes": g.Nodes, "edges": g.Edges})
+}
+
 // handleOTLPTraceDetail serves one trace's spans (read-scoped).
 func (s *Server) handleOTLPTraceDetail(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.requireReadScope(w, r)

@@ -221,6 +221,123 @@ func pctl(sorted []float64, q float64) float64 {
 	return sorted[i]
 }
 
+// OTLPServiceGraph builds the service-to-service dependency map over the window:
+// for each span whose parent runs in a *different* service, that's one call from
+// the parent's service (caller) to the child's service (callee). Metrics are taken
+// from the callee span (the downstream work). Aggregated in Go for portability.
+func (s *Store) OTLPServiceGraph(ctx context.Context, orgIDs []string, since int64) (model.ServiceGraph, error) {
+	filter, args := orgFilter("org_id", orgIDs)
+	args = append([]any{since}, args...)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT span_id, parent_id, service, dur_ns, status FROM otlp_spans
+WHERE ts >= ?`+filter+`
+ORDER BY start_ns DESC
+LIMIT 20000`, args...)
+	if err != nil {
+		return model.ServiceGraph{}, err
+	}
+	defer rows.Close()
+	type sp struct {
+		parent, service, status string
+		dur                     int64
+	}
+	byID := map[string]sp{}
+	var all []sp
+	for rows.Next() {
+		var id, parent, service, status string
+		var dur int64
+		if err := rows.Scan(&id, &parent, &service, &dur, &status); err != nil {
+			return model.ServiceGraph{}, err
+		}
+		byID[id] = sp{parent: parent, service: service, status: status, dur: dur}
+		all = append(all, sp{parent: parent, service: service, status: status, dur: dur})
+	}
+	if err := rows.Err(); err != nil {
+		return model.ServiceGraph{}, err
+	}
+
+	type edgeAcc struct {
+		durs   []float64 // ms, callee
+		errors int
+	}
+	type nodeAcc struct {
+		in, out, errs int
+		root          bool
+	}
+	edges := map[[2]string]*edgeAcc{}
+	var edgeOrder [][2]string
+	nodes := map[string]*nodeAcc{}
+	node := func(name string) *nodeAcc {
+		a := nodes[name]
+		if a == nil {
+			a = &nodeAcc{}
+			nodes[name] = a
+		}
+		return a
+	}
+	for _, c := range all {
+		if c.service != "" {
+			node(c.service) // ensure every service is a node, even leaf-only ones
+		}
+		if c.parent == "" {
+			if c.service != "" {
+				node(c.service).root = true
+			}
+			continue
+		}
+		p, ok := byID[c.parent]
+		if !ok || p.service == "" || c.service == "" || p.service == c.service {
+			continue // missing parent (cross-batch) or same-service (internal) call
+		}
+		k := [2]string{p.service, c.service}
+		e := edges[k]
+		if e == nil {
+			e = &edgeAcc{}
+			edges[k] = e
+			edgeOrder = append(edgeOrder, k)
+		}
+		e.durs = append(e.durs, float64(c.dur)/1e6)
+		isErr := c.status == "error"
+		if isErr {
+			e.errors++
+		}
+		node(p.service).out++
+		cn := node(c.service)
+		cn.in++
+		if isErr {
+			cn.errs++
+		}
+	}
+
+	g := model.ServiceGraph{Edges: make([]model.ServiceEdge, 0, len(edgeOrder))}
+	for _, k := range edgeOrder {
+		e := edges[k]
+		sort.Float64s(e.durs)
+		n := len(e.durs)
+		g.Edges = append(g.Edges, model.ServiceEdge{
+			Caller: k[0], Callee: k[1], Calls: n, Errors: e.errors,
+			ErrorRate: float64(e.errors) / float64(n),
+			P50Ms:     pctl(e.durs, 0.50), P95Ms: pctl(e.durs, 0.95),
+		})
+	}
+	// Busiest edges first.
+	sort.Slice(g.Edges, func(i, j int) bool { return g.Edges[i].Calls > g.Edges[j].Calls })
+
+	g.Nodes = make([]model.ServiceNode, 0, len(nodes))
+	for name, a := range nodes {
+		g.Nodes = append(g.Nodes, model.ServiceNode{
+			Service: name, Incoming: a.in, Outgoing: a.out, Errors: a.errs, Root: a.root,
+		})
+	}
+	sort.Slice(g.Nodes, func(i, j int) bool {
+		if g.Nodes[i].Incoming+g.Nodes[i].Outgoing != g.Nodes[j].Incoming+g.Nodes[j].Outgoing {
+			return g.Nodes[i].Incoming+g.Nodes[i].Outgoing > g.Nodes[j].Incoming+g.Nodes[j].Outgoing
+		}
+		return g.Nodes[i].Service < g.Nodes[j].Service
+	})
+	return g, nil
+}
+
 // OTLPTraceSpans returns one trace's spans, earliest first (for the detail view).
 func (s *Store) OTLPTraceSpans(ctx context.Context, orgIDs []string, traceID string) ([]model.OTLPSpan, error) {
 	filter, args := orgFilter("org_id", orgIDs)
