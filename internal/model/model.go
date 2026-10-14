@@ -578,6 +578,46 @@ type ServiceGraph struct {
 	Edges []ServiceEdge `json:"edges"`
 }
 
+// IOC indicator types.
+const (
+	IOCTypeIP     = "ip"
+	IOCTypeDomain = "domain"
+	IOCTypeHash   = "hash"
+)
+
+// IOC is a persisted per-org indicator of compromise (a known-bad IP, domain, or
+// file hash), either entered manually or ingested from a STIX/TAXII feed. These
+// supplement the global keyless feeds and are matched against endpoint telemetry.
+type IOC struct {
+	OrgID   string `json:"org_id,omitempty"`
+	Type    string `json:"type"`   // ip | domain | hash
+	Value   string `json:"value"`  // normalized (lowercased for domain/hash)
+	Source  string `json:"source"` // "manual" or the feed URL
+	Label   string `json:"label,omitempty"`
+	AddedAt int64  `json:"added_at"`
+}
+
+// IOCCounts is the per-type tally of an org's IOCs, for the management view.
+type IOCCounts struct {
+	IP     int `json:"ip"`
+	Domain int `json:"domain"`
+	Hash   int `json:"hash"`
+}
+
+// STIXFeed is a per-org configured STIX 2.1 / TAXII 2.1 indicator feed URL that
+// the server polls on a schedule, upserting the indicators it yields as IOCs.
+type STIXFeed struct {
+	ID         string `json:"id"`
+	OrgID      string `json:"org_id,omitempty"`
+	URL        string `json:"url"`
+	Kind       string `json:"kind"` // stix (bundle URL) | taxii (collection objects URL)
+	Enabled    bool   `json:"enabled"`
+	AddedAt    int64  `json:"added_at"`
+	LastRun    int64  `json:"last_run,omitempty"`
+	LastCount  int    `json:"last_count,omitempty"`
+	LastStatus string `json:"last_status,omitempty"`
+}
+
 // SavedView is a named, persisted metric-explorer configuration (its spec is an
 // opaque JSON blob the dashboard interprets: metric, endpoints, time range).
 type SavedView struct {

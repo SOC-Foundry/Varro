@@ -57,6 +57,18 @@ type threatIntel struct {
 
 	seenMu      sync.Mutex
 	seenChecked map[string]bool // "org|domain" already DB-checked this process lifetime
+
+	// Per-org custom IOC overlay (manual + STIX/TAXII-ingested), refreshed from
+	// the DB. Distinct from the global keyless feeds above, which are org-agnostic.
+	customMu sync.RWMutex
+	custom   map[string]*iocSet // org id -> indicator sets
+}
+
+// iocSet holds one org's custom indicators, split by type for O(1) lookup.
+type iocSet struct {
+	ips     map[string]bool
+	domains map[string]bool
+	hashes  map[string]bool
 }
 
 func newThreatIntel(feeds, hashFeeds, domainFeeds []string) *threatIntel {
@@ -78,7 +90,101 @@ func newThreatIntel(feeds, hashFeeds, domainFeeds []string) *threatIntel {
 		badDomains:  map[string]bool{},
 		lastAlert:   map[string]time.Time{},
 		seenChecked: map[string]bool{},
+		custom:      map[string]*iocSet{},
 	}
+}
+
+// setCustom replaces the per-org custom IOC overlay.
+func (t *threatIntel) setCustom(m map[string]*iocSet) {
+	t.customMu.Lock()
+	t.custom = m
+	t.customMu.Unlock()
+}
+
+// customCount returns the total number of custom IOCs across all orgs.
+func (t *threatIntel) customCount() int {
+	t.customMu.RLock()
+	defer t.customMu.RUnlock()
+	n := 0
+	for _, s := range t.custom {
+		n += len(s.ips) + len(s.domains) + len(s.hashes)
+	}
+	return n
+}
+
+func (t *threatIntel) isBadCustomIP(org, ip string) bool {
+	t.customMu.RLock()
+	defer t.customMu.RUnlock()
+	s := t.custom[org]
+	return s != nil && s.ips[ip]
+}
+
+func (t *threatIntel) isBadCustomHash(org, h string) bool {
+	if h == "" {
+		return false
+	}
+	t.customMu.RLock()
+	defer t.customMu.RUnlock()
+	s := t.custom[org]
+	return s != nil && s.hashes[strings.ToLower(h)]
+}
+
+// isBadCustomDomain matches a domain or any of its parent domains against the
+// org's custom domain set (so "a.evil.example" matches a listed "evil.example").
+func (t *threatIntel) isBadCustomDomain(org, domain string) bool {
+	if domain == "" {
+		return false
+	}
+	d := strings.ToLower(strings.TrimSuffix(domain, "."))
+	t.customMu.RLock()
+	defer t.customMu.RUnlock()
+	s := t.custom[org]
+	if s == nil || len(s.domains) == 0 {
+		return false
+	}
+	for {
+		if s.domains[d] {
+			return true
+		}
+		i := strings.IndexByte(d, '.')
+		if i < 0 {
+			return false
+		}
+		d = d[i+1:]
+		if !strings.Contains(d, ".") {
+			return false
+		}
+	}
+}
+
+// reloadCustomIOCs rebuilds the per-org custom IOC overlay from the DB. Called at
+// startup, after a feed ingest, and periodically.
+func (s *Server) reloadCustomIOCs(ctx context.Context) {
+	if s.ti == nil {
+		return
+	}
+	iocs, err := s.store.AllIOCs(ctx)
+	if err != nil {
+		s.log.Error("reload custom IOCs", "error", err)
+		return
+	}
+	m := map[string]*iocSet{}
+	for _, ioc := range iocs {
+		set := m[ioc.OrgID]
+		if set == nil {
+			set = &iocSet{ips: map[string]bool{}, domains: map[string]bool{}, hashes: map[string]bool{}}
+			m[ioc.OrgID] = set
+		}
+		switch ioc.Type {
+		case model.IOCTypeIP:
+			set.ips[ioc.Value] = true
+		case model.IOCTypeDomain:
+			set.domains[ioc.Value] = true
+		case model.IOCTypeHash:
+			set.hashes[strings.ToLower(ioc.Value)] = true
+		}
+	}
+	s.ti.setCustom(m)
 }
 
 // firstDomainCheck reports whether this (org,domain) has not yet been checked
@@ -323,7 +429,7 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 	}
 	for _, conn := range snap.Security.Connections {
 		ip, _ := splitRemote(conn.Remote)
-		if ip == "" || !s.ti.isBad(ip) || !s.ti.shouldAlert(snap.AgentID, ip) {
+		if ip == "" || !(s.ti.isBad(ip) || s.ti.isBadCustomIP(orgID, ip)) || !s.ti.shouldAlert(snap.AgentID, ip) {
 			continue
 		}
 		proc := conn.Process
@@ -341,7 +447,7 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 		}
 	}
 	for _, ph := range snap.ProcHashes {
-		if !s.ti.isBadHash(ph.SHA256) || !s.ti.shouldAlert(snap.AgentID, ph.SHA256) {
+		if !(s.ti.isBadHash(ph.SHA256) || s.ti.isBadCustomHash(orgID, ph.SHA256)) || !s.ti.shouldAlert(snap.AgentID, ph.SHA256) {
 			continue
 		}
 		msg := "MALWARE: " + snap.Hostname + " ran " + ph.Name + " (pid " + itoa(int(ph.PID)) +
@@ -381,7 +487,7 @@ func (s *Server) checkDomains(ctx context.Context, orgID string, snap *model.Sna
 		}
 
 		// Known-malicious domain → rate-limited alert.
-		if s.ti.isBadDomain(domain) && s.ti.shouldAlert(snap.AgentID, "dom:"+domain) {
+		if (s.ti.isBadDomain(domain) || s.ti.isBadCustomDomain(orgID, domain)) && s.ti.shouldAlert(snap.AgentID, "dom:"+domain) {
 			msg := "THREAT: " + snap.Hostname + " connected to known-malicious domain " + domain +
 				" — matches threat-intel domain feed"
 			s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventDomainThreatMatch, msg)

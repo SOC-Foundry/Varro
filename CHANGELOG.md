@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.87.0] — 2026-10-14
+- STIX/TAXII threat-intel ingest + IOC management: orgs can now maintain their own indicators of compromise (IPs, domains, SHA-256 hashes) alongside the built-in abuse.ch feeds. Add them by hand, poll a STIX 2.1 / TAXII 2.1 feed URL on a schedule, or paste a STIX bundle to import. Ingested indicators are matched against endpoint connections, resolved domains, and process-binary hashes with the same rate-limited alerting/SIEM/correlation path as the global feeds. New "Threat intelligence" card in the Admin view (IOC table + per-type counts, feed management with last-poll status, bundle import). Feed fetches are SSRF-guarded (link-local/metadata/private/CGNAT blocked for non-infra orgs, same policy as webhooks/synthetic probes). STIX patterns parsed: `ipv4/ipv6-addr:value`, `domain-name:value`, `url:value` (host extracted), `file:hashes.'SHA-256'`; raw SCOs handled too. `GET/POST/DELETE /api/v1/orgs/{id}/iocs`, `GET/POST/DELETE /api/v1/orgs/{id}/stix/feeds`, `POST …/stix/feeds/{fid}/refresh`, `POST …/stix/ingest` (all org-admin). Per-org overlay is matched on every collector and reloaded cluster-wide after an ingest; feed polling is leader-gated.
+
 ## [v0.86.0] — 2026-10-13
 - Service dependency map (Traces view): a caller→callee graph derived from span parentage — whenever a span's parent runs in a different `service.name`, that's a call from the parent's service to the child's service. Edges show call counts, error rate (color), and p50/p95 latency on hover; nodes show incoming/outgoing call totals, mark entrypoint (root-span) services, and highlight services serving a high error rate. Laid out in columns by distance from an entrypoint. `GET /api/v1/otlp/graph?minutes=` (read-scoped, org-filtered); metrics measured on the callee (downstream) span.
 

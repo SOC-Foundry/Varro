@@ -422,6 +422,28 @@ CREATE TABLE IF NOT EXISTS topology_snapshots (
 	data   BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_toposnap_org_ts ON topology_snapshots(org_id, ts);
+CREATE TABLE IF NOT EXISTS iocs (
+	org_id   TEXT NOT NULL,
+	ioc_type TEXT NOT NULL,
+	value    TEXT NOT NULL,
+	source   TEXT NOT NULL DEFAULT 'manual',
+	label    TEXT NOT NULL DEFAULT '',
+	added_at INTEGER NOT NULL,
+	PRIMARY KEY (org_id, ioc_type, value)
+);
+CREATE INDEX IF NOT EXISTS idx_iocs_org_type ON iocs(org_id, ioc_type);
+CREATE TABLE IF NOT EXISTS stix_feeds (
+	id          TEXT PRIMARY KEY,
+	org_id      TEXT NOT NULL,
+	url         TEXT NOT NULL,
+	kind        TEXT NOT NULL DEFAULT 'stix',
+	enabled     INTEGER NOT NULL DEFAULT 1,
+	added_at    INTEGER NOT NULL,
+	last_run    INTEGER NOT NULL DEFAULT 0,
+	last_count  INTEGER NOT NULL DEFAULT 0,
+	last_status TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_stix_feeds_org ON stix_feeds(org_id);
 `
 	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err

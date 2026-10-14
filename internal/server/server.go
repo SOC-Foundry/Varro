@@ -209,6 +209,14 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs/{id}/silences", s.handleSilencesList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/silences", s.handleSilenceCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/silences/{silID}", s.handleSilenceDelete)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/iocs", s.handleIOCList)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/iocs", s.handleIOCCreate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/iocs", s.handleIOCDelete)
+	mux.HandleFunc("GET /api/v1/orgs/{id}/stix/feeds", s.handleSTIXFeedList)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/stix/feeds", s.handleSTIXFeedCreate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/stix/feeds/{fid}", s.handleSTIXFeedDelete)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/stix/feeds/{fid}/refresh", s.handleSTIXFeedRefresh)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/stix/ingest", s.handleSTIXIngest)
 	mux.HandleFunc("GET /download/{asset}", s.handleDownload)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
@@ -244,6 +252,12 @@ func (s *Server) Run(ctx context.Context) error {
 	// indicator sets to match at ingest, which can land on any node.
 	if s.ti != nil {
 		go s.threatRefreshLoop(ctx)
+		// Per-org custom IOC overlay: load now and poll STIX/TAXII feeds. The
+		// matcher runs on every collector (load everywhere), but feed polling is
+		// leader-gated inside the loop so the shared DB isn't fetched N times.
+		s.reloadCustomIOCs(ctx)
+		go s.stixRefreshLoop(ctx)
+		go s.customIOCReloadLoop(ctx)
 	}
 	if s.backupEnabled() {
 		go s.backupLoop(ctx)
