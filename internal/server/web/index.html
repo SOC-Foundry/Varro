@@ -3519,7 +3519,7 @@ $("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
 
 let topoWindow = 60; // minutes
 let topoAt = null, topoCollapse = false, topoHulls = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
-const TOPO_RANGES = [["15m",15],["1h",60],["6h",360],["24h",1440]];
+const TOPO_RANGES = [["15m",15],["1h",60],["6h",360],["24h",1440],["7d",10080]];
 
 function setupTopoControls() {
   const box = $("topoRanges");

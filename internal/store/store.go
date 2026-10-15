@@ -848,6 +848,15 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 	}
 	sampleCut := time.Now().Add(-sampleRetention).Unix()
 	eventCut := time.Now().Add(-eventRetention).Unix()
+	// Topology edges are the learned dependency graph — tiny (deduplicated per
+	// src/dst/process/port) and valuable to remember far longer than raw samples,
+	// so the Topology view's longer windows (incl. 7d) and infrequent talkers
+	// aren't lost to the short sample retention. Keep them at least 14 days.
+	edgeRetention := sampleRetention
+	if min := 14 * 24 * time.Hour; edgeRetention < min {
+		edgeRetention = min
+	}
+	edgeCut := time.Now().Add(-edgeRetention).Unix()
 
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < ?`, eventCut); err != nil {
 		return 0, err
@@ -856,7 +865,7 @@ func (s *Store) Prune(ctx context.Context, sampleRetention, eventRetention time.
 		`DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?`, eventCut); err != nil {
 		return 0, err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, sampleCut); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE last_seen < ?`, edgeCut); err != nil {
 		return 0, err
 	}
 	// Logs are high-volume; keep them on the short (sample) retention.

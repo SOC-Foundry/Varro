@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.91.0] — 2026-10-14
+- Topology: added a **7d** range to the time-range selector (was 15m/1h/6h/24h). To make it meaningful, learned topology edges now have a dedicated retention — kept at least 14 days instead of expiring on the short sample retention (72h in prod) — so the 7d window and infrequent talkers (a service that only calls another once a day) aren't lost. Edges are tiny (deduplicated per src/dst/process/port), so the longer retention is cheap.
+
 ## [v0.90.0] — 2026-10-14
 - Topology: internal edges now name the **callee application**, not just its port — edges read `nginx → postgres:5432` instead of `nginx → host:5432`, and the edge detail shows a caller-process → callee-service table with a "depends on" summary. This makes the passive, agent-only topology graph answer "what app depends on what to run" without any instrumentation. The callee process is resolved at query time from the destination endpoint's reported listening ports (port → listening process), so it needs no schema change and self-heals from the latest snapshot. (For application-level dependencies with per-hop latency/error metrics, OTLP traces + the Service dependency map remain the richer option.)
 
