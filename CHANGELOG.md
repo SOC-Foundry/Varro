@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.89.0] — 2026-10-14
+- Traces view: added a "Send traces here" quickstart card with the copy-paste OTLP exporter env vars (endpoint, http/json protocol, bearer header, service name) and a note on trace-context propagation — so the setup for the service dependency map lives right where you'd look for it. Mirrors the existing hint in the Custom metrics view.
+
 ## [v0.88.0] — 2026-10-14
 - Fix (navigation): added a persistent **Endpoints** tab at the top of the sidebar's Explore nav that returns to the main device dashboard from any view. Previously the only way back was the small "← back to endpoints" link inside each view (or clicking a device in the sidebar, which is hidden on mobile after the sidebar closes) — so after switching between Explore tabs there was no obvious way home. The Endpoints tab highlights as active whenever no Explore view is open.
 
