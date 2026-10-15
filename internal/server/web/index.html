@@ -3704,10 +3704,17 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   };
 }
 
+// edgeProcText renders one caller→callee process pair. When the callee process
+// is known (resolved from the destination's listening port) it reads
+// "nginx → postgres:5432"; otherwise it falls back to "nginx:5432".
+function edgeProcText(p) {
+  return p.dst_process ? `${p.process} → ${p.dst_process}:${p.port}` : `${p.process}:${p.port}`;
+}
+
 function edgeLabel(e) {
   if (!e.internal) return e.bytes ? fmtBytes(e.bytes, "") : `${e.count} conns`;
   const ps = e.processes ?? [];
-  let label = ps.slice(0, 2).map(p => `${p.process}:${p.port}`).join("  ");
+  let label = ps.slice(0, 2).map(edgeProcText).join("  ");
   if (ps.length > 2) label += `  +${ps.length - 2}`;
   return label;
 }
@@ -3987,7 +3994,7 @@ function renderTopoInfo() {
       related.map(e => {
         const other = id => id === "internet" ? "internet" : esc(topoNodes.find(x => x.id === id)?.hostname ?? id);
         const dir = e.src === n.id ? `→ ${other(e.dst)}` : `← ${other(e.src)}`;
-        const what = e.internal ? (e.processes ?? []).map(p => `${esc(p.process)}:${p.port}`).join(", ") : `${e.count} conns`;
+        const what = e.internal ? (e.processes ?? []).map(p => esc(edgeProcText(p))).join(", ") : `${e.count} conns`;
         return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${dir} <span style="color:var(--dim)">${what}</span></div>`;
       }).join("") +
       (blastSet && blastSet.has(n.id)
@@ -4011,8 +4018,9 @@ function renderTopoInfo() {
     return;
   }
   box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}</h3>
-    <table><thead><tr><th>Process</th><th class="num">Port</th></tr></thead><tbody>` +
-    (e.processes ?? []).map(p => `<tr><td>${esc(p.process)}</td><td class="num">${p.port}</td></tr>`).join("") +
+    <div style="color:var(--dim); font-size:12px; margin-bottom:6px">${esc(name(e.src))} depends on ${esc(name(e.dst))} — caller process → service it reaches</div>
+    <table><thead><tr><th>Caller process</th><th>Callee service</th><th class="num">Port</th></tr></thead><tbody>` +
+    (e.processes ?? []).map(p => `<tr><td>${esc(p.process)}</td><td>${p.dst_process ? esc(p.dst_process) : '<span style="color:var(--dim)">—</span>'}</td><td class="num">${p.port}</td></tr>`).join("") +
     `</tbody></table>
     <div style="color:var(--dim); font-size:12px; margin-top:8px; font-family:var(--mono)">
       first seen ${new Date(e.first_seen).toLocaleString()} · last seen ${new Date(e.last_seen).toLocaleString()}</div>`;

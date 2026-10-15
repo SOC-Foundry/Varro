@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.90.0] — 2026-10-14
+- Topology: internal edges now name the **callee application**, not just its port — edges read `nginx → postgres:5432` instead of `nginx → host:5432`, and the edge detail shows a caller-process → callee-service table with a "depends on" summary. This makes the passive, agent-only topology graph answer "what app depends on what to run" without any instrumentation. The callee process is resolved at query time from the destination endpoint's reported listening ports (port → listening process), so it needs no schema change and self-heals from the latest snapshot. (For application-level dependencies with per-hop latency/error metrics, OTLP traces + the Service dependency map remain the richer option.)
+
 ## [v0.89.0] — 2026-10-14
 - Traces view: added a "Send traces here" quickstart card with the copy-paste OTLP exporter env vars (endpoint, http/json protocol, bearer header, service name) and a note on trace-context propagation — so the setup for the service dependency map lives right where you'd look for it. Mirrors the existing hint in the Custom metrics view.
 

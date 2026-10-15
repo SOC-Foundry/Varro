@@ -262,8 +262,9 @@ type TopoNode struct {
 }
 
 type EdgeProcess struct {
-	Process string `json:"process"`
-	Port    int    `json:"port"`
+	Process    string `json:"process"`               // the calling (source) process
+	Port       int    `json:"port"`                  // the destination port it connected to
+	DstProcess string `json:"dst_process,omitempty"` // process listening on that port at the callee (resolved passively)
 }
 
 type TopoEdge struct {

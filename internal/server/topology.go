@@ -341,6 +341,41 @@ func (s *Server) topoSnapshotLoop(ctx context.Context) {
 
 // buildTopology computes the node/edge graph for a scope over the trailing
 // window. Shared by the live handler and the periodic time-travel snapshotter.
+// resolveCalleeProcesses fills each internal edge's EdgeProcess.DstProcess from
+// the destination endpoint's latest listening ports (port → listening process),
+// turning "caller → host:port" into "caller → callee-app". Passive; mutates edges
+// in place. External edges and ports with no known listener are left untouched.
+func resolveCalleeProcesses(edges []model.TopoEdge, snaps map[string]*model.Snapshot) {
+	listenProc := map[string]map[int]string{} // endpoint -> port -> listening process
+	for id, snap := range snaps {
+		if snap == nil {
+			continue
+		}
+		m := map[int]string{}
+		for _, lp := range snap.Security.ListeningPorts {
+			if lp.Process != "" {
+				m[int(lp.Port)] = lp.Process
+			}
+		}
+		listenProc[id] = m
+	}
+	for i := range edges {
+		e := &edges[i]
+		if !e.Internal {
+			continue
+		}
+		pm := listenProc[e.Dst]
+		if pm == nil {
+			continue
+		}
+		for j := range e.Processes {
+			if proc := pm[e.Processes[j].Port]; proc != "" {
+				e.Processes[j].DstProcess = proc
+			}
+		}
+	}
+}
+
 func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int) ([]model.TopoNode, []model.TopoEdge, error) {
 	since := time.Now().Add(-time.Duration(minutes) * time.Minute)
 
@@ -398,6 +433,12 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 			}
 		}
 	}
+
+	// Resolve the callee process for each internal edge from the destination's
+	// latest listening ports, so edges read app→app (e.g. nginx → postgres)
+	// instead of app → host:port. Purely passive — the agent already reports each
+	// listening port with its owning process. Self-heals from the latest snapshot.
+	resolveCalleeProcesses(edges, snaps)
 	for id, snap := range snaps {
 		for _, conn := range snap.Security.Connections {
 			ip, _ := splitRemote(conn.Remote)
