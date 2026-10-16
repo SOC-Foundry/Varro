@@ -206,6 +206,7 @@ const (
 	EventConnUndeclared    = "conn_undeclared"     // observed internal connection not in the source's declared deps (drift)
 	EventDepTargetDown     = "dep_target_down"     // a hard declared dependency's target host is offline
 	EventMetricAnomaly     = "metric_anomaly"      // a metric deviated sharply from the host's own baseline
+	EventSLOBreach         = "slo_breach"          // a service exhausted its error budget for the SLO window
 	EventVulnNew           = "vuln_new"            // package newly matched to a known vulnerability
 	EventThreatMatch       = "threat_match"        // connection to a known-malicious indicator
 	EventMalwareMatch      = "malware_match"       // process binary matched a known-malware hash
@@ -697,6 +698,28 @@ type FleetSummary struct {
 	Versions     map[string]int `json:"versions"` // agent_version -> count
 	Rollout      AgentRollout   `json:"rollout"`
 	Agents       []FleetAgent   `json:"agents"`
+}
+
+// SLO is a per-service success-rate objective: at least Target (0..1, e.g. 0.999)
+// of requests should succeed over the trailing WindowMinutes. The error budget is
+// (1 - Target) of requests; consuming it all is a breach.
+type SLO struct {
+	OrgID         string  `json:"org_id,omitempty"`
+	Service       string  `json:"service"`
+	Target        float64 `json:"target"`
+	WindowMinutes int     `json:"window_minutes"`
+}
+
+// SLOStatus is an SLO evaluated over its window against live trace data.
+type SLOStatus struct {
+	Service        string  `json:"service"`
+	Target         float64 `json:"target"`
+	WindowMinutes  int     `json:"window_minutes"`
+	Requests       int     `json:"requests"`
+	Errors         int     `json:"errors"`
+	ErrorRate      float64 `json:"error_rate"`      // 0..1
+	BudgetConsumed float64 `json:"budget_consumed"` // errorRate / (1-target); ≥1 = budget exhausted
+	Status         string  `json:"status"`          // ok | warning | breached | no-data
 }
 
 // SavedView is a named, persisted metric-explorer configuration (its spec is an

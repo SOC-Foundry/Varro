@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.1.0] — 2026-10-16
+- SLOs + error budgets (first v1.1 feature): define a per-service success-rate objective (target + window) and Varro computes error-budget consumption from live trace RED data — ok / warning (≥75% consumed) / breached (budget exhausted), shown in the Traces view with a budget bar. A leader-side check raises an `slo_breach` event (HIGH) when a service exhausts its budget, rate-limited hourly. `GET /api/v1/slos` (read-scoped statuses), `POST /api/v1/orgs/{id}/slos` + `DELETE …/slos/{service}` (org admin).
+
 ## [v1.0.0] — 2026-10-16
 - **1.0 milestone.** Varro is stable and running in production: one Go binary spanning endpoint telemetry, EDR-style security sensing, application observability (OTLP metrics/traces/logs, service dependency map, topology + declared-dependency overlay, drift detection, blast-radius/SPOF), and SOC workflows (threat intel + STIX/TAXII, Sigma + custom detections, hunting, incidents, SOAR auto-response) — behind multi-tenant orgs with SSO, an HA Postgres cluster (pg_auto_failover), and signed auto-upgrading agents with staged canary rollout.
 - No new features in this release — a **consolidation pass**: full regression (build/vet/`go test` + the race detector clean across all packages, all five target platforms cross-compile, CI green) and a documentation refresh (README capabilities overview, accurate anomaly-detection description). The feature-by-feature path to 1.0 is the v0.x history below.

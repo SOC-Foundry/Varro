@@ -86,6 +86,38 @@ func TestSTIXIngestHandler(t *testing.T) {
 	}
 }
 
+func TestSLOHandlers(t *testing.T) {
+	srv, _ := newTestServer(t)
+	// create
+	w := httptest.NewRecorder()
+	srv.handleSLOCreate(w, iocReq("POST", "/api/v1/orgs/default/slos", `{"service":"api","target":0.99,"window_minutes":60}`))
+	if w.Code != 200 {
+		t.Fatalf("create SLO: %d %s", w.Code, w.Body.String())
+	}
+	// invalid target rejected
+	w = httptest.NewRecorder()
+	srv.handleSLOCreate(w, iocReq("POST", "/api/v1/orgs/default/slos", `{"service":"api","target":1.5}`))
+	if w.Code != 400 {
+		t.Errorf("target 1.5 should be 400, got %d", w.Code)
+	}
+	// list (read-scoped) — no traces yet → no-data status
+	w = httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/slos", nil)
+	r.Header.Set("Authorization", "Bearer master-secret")
+	srv.handleSLOList(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"api"`) || !strings.Contains(w.Body.String(), "no-data") {
+		t.Fatalf("list SLO: %d %s", w.Code, w.Body.String())
+	}
+	// delete
+	w = httptest.NewRecorder()
+	dr := iocReq("DELETE", "/api/v1/orgs/default/slos/api", "")
+	dr.SetPathValue("service", "api")
+	srv.handleSLODelete(w, dr)
+	if w.Code != 200 {
+		t.Fatalf("delete SLO: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSTIXFeedCreateValidatesURL(t *testing.T) {
 	srv, _ := newTestServer(t)
 	// non-http scheme rejected

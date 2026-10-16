@@ -574,6 +574,20 @@
         <tbody id="svcRows"></tbody>
       </table>
     </div>
+    <h3 style="font-size:13px; margin:4px 0 6px">SLOs <span style="color:var(--dim); font-weight:400">· success-rate objectives &amp; error budgets</span></h3>
+    <div class="card" style="overflow-x:auto; margin-bottom:14px">
+      <table style="width:100%; min-width:620px">
+        <thead><tr><th>Service</th><th class="num">target</th><th class="num">window</th><th class="num">error %</th><th>error budget</th><th>status</th><th style="width:36px"></th></tr></thead>
+        <tbody id="sloRows"></tbody>
+      </table>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px; padding:0 2px">
+        <input id="sloService" placeholder="service name" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; font-family:var(--mono); min-width:150px">
+        <input id="sloTarget" type="number" step="0.001" min="0.5" max="0.99999" value="0.999" title="success-rate target (0-1)" style="width:90px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font-size:12.5px">
+        <select id="sloWindow" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="60">1h</option><option value="1440" selected>24h</option><option value="10080">7d</option></select>
+        <button class="abtn" id="addSloBtn" style="color:var(--accent)">Set SLO</button>
+        <span id="sloMsg" style="font-size:12px"></span>
+      </div>
+    </div>
     <h3 style="font-size:13px; margin:4px 0 6px">Service dependency map <span style="color:var(--dim); font-weight:400">· caller → callee, from span parentage</span></h3>
     <div class="card" style="margin-bottom:14px; padding:0">
       <div id="depGraphWrap" style="overflow-x:auto">
@@ -1167,7 +1181,7 @@ function renderVulns(v) {
 }
 
 // Event types worth drawing the eye to.
-const hotEvents = new Set(["detection", "threat_match", "malware_match", "suid_change", "identity_change", "vuln_new", "auth_failures", "dep_target_down", "metric_anomaly"]);
+const hotEvents = new Set(["detection", "threat_match", "malware_match", "suid_change", "identity_change", "vuln_new", "auth_failures", "dep_target_down", "metric_anomaly", "slo_breach"]);
 
 function renderEvents(events) {
   $("events").innerHTML = events.map(ev => {
@@ -3192,6 +3206,7 @@ function renderOtlp() {
 let tracesMode = false, tracesWindow = 60, tracesData = [];
 $("tracesLink").onclick = e => { e.preventDefault(); closeSidebar(); showTraces(true); };
 $("tracesBack").onclick = e => { e.preventDefault(); showTraces(false); };
+$("addSloBtn").onclick = addSLO;
 function hideTraces() { tracesMode = false; $("tracesView").style.display = "none"; }
 
 function showTraces(on) {
@@ -3255,6 +3270,47 @@ async function loadTraces() {
     const r = await getJSON(orgQ("/api/v1/otlp/graph?minutes=" + tracesWindow));
     renderDepGraph(r.nodes || [], r.edges || []);
   } catch (e) { renderDepGraph([], []); }
+  try {
+    const r = await getJSON(orgQ("/api/v1/slos"));
+    renderSLOs(r.slos || []);
+  } catch (e) { $("sloRows").innerHTML = `<tr><td colspan="7" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+
+function renderSLOs(slos) {
+  const tb = $("sloRows");
+  if (!slos.length) { tb.innerHTML = `<tr><td colspan="7" style="color:var(--dim)">no SLOs defined — set one below (needs trace data for the service)</td></tr>`; return; }
+  const col = { ok: "var(--green)", warning: "var(--amber)", breached: "var(--red)", "no-data": "var(--dim)" };
+  const win = m => m >= 1440 ? (m / 1440) + "d" : m >= 60 ? (m / 60) + "h" : m + "m";
+  tb.innerHTML = slos.map(s => {
+    const c = col[s.status] || "var(--dim)";
+    const pct = Math.min(100, Math.round((s.budget_consumed || 0) * 100));
+    const bar = `<div style="background:#0d1117;border:1px solid var(--border);border-radius:4px;height:12px;width:120px;overflow:hidden"><div style="height:12px;width:${pct}%;background:${c}"></div></div>`;
+    return `<tr data-svc="${esc(s.service)}">
+      <td style="font-family:var(--mono)">${esc(s.service)}</td>
+      <td class="num" style="font-family:var(--mono)">${(s.target * 100).toFixed(2)}%</td>
+      <td class="num" style="color:var(--dim)">${win(s.window_minutes)}</td>
+      <td class="num" style="font-family:var(--mono)">${(s.error_rate * 100).toFixed(2)}%</td>
+      <td style="display:flex;align-items:center;gap:8px">${bar}<span style="font-size:11px;color:${c}">${pct}%</span></td>
+      <td><span style="color:${c};font-size:12px">● ${esc(s.status)}</span></td>
+      <td><button class="del-slo" title="delete SLO" style="color:var(--red);border:none;background:none;cursor:pointer;font-size:14px">✕</button></td></tr>`;
+  }).join("");
+  tb.querySelectorAll("tr[data-svc]").forEach(tr => {
+    tr.querySelector(".del-slo").onclick = async () => {
+      try { await del(`/api/v1/orgs/${encodeURIComponent(currentOrg)}/slos/${encodeURIComponent(tr.getAttribute("data-svc"))}`); loadTraces(); }
+      catch (ex) { oops(ex); }
+    };
+  });
+}
+async function addSLO() {
+  $("sloMsg").textContent = ""; $("sloMsg").style.color = "var(--dim)";
+  const service = $("sloService").value.trim();
+  if (!service) { $("sloMsg").style.color = "var(--red)"; $("sloMsg").textContent = "service is required"; return; }
+  const body = { service, target: parseFloat($("sloTarget").value), window_minutes: parseInt($("sloWindow").value, 10) };
+  try {
+    await postJSON(`/api/v1/orgs/${encodeURIComponent(currentOrg)}/slos`, body);
+    $("sloService").value = ""; $("sloMsg").style.color = "var(--green)"; $("sloMsg").textContent = "saved";
+    loadTraces();
+  } catch (e) { $("sloMsg").style.color = "var(--red)"; $("sloMsg").textContent = e.message; }
 }
 
 // renderDepGraph lays out services in columns by their longest distance from a

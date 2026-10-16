@@ -232,6 +232,9 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs/{id}/silences", s.handleSilencesList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/silences", s.handleSilenceCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/silences/{silID}", s.handleSilenceDelete)
+	mux.HandleFunc("GET /api/v1/slos", s.handleSLOList)
+	mux.HandleFunc("POST /api/v1/orgs/{id}/slos", s.handleSLOCreate)
+	mux.HandleFunc("DELETE /api/v1/orgs/{id}/slos/{service}", s.handleSLODelete)
 	mux.HandleFunc("GET /api/v1/fleet", s.handleFleet)
 	mux.HandleFunc("GET /api/v1/fleet/rollout", s.handleRolloutGet)
 	mux.HandleFunc("PUT /api/v1/fleet/rollout", s.handleRolloutSet)
@@ -273,6 +276,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.digestLoop(ctx)
 	go s.dependencyHealthLoop(ctx)
 	go s.anomalyLoop(ctx)
+	go s.sloLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}
