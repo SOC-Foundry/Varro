@@ -26,7 +26,75 @@ func CollectDeclaredDeps(ctx context.Context) []model.DeclaredDep {
 	var out []model.DeclaredDep
 	out = append(out, systemdDeps(ctx)...)
 	out = append(out, postgresDeps()...)
+	out = append(out, proxyDeps()...)
 	return out
+}
+
+// proxyHostPortRe matches "host:port" or "scheme://host:port" upstream targets.
+var proxyHostPortRe = regexp.MustCompile(`(?:[a-z]+://)?([a-zA-Z0-9][a-zA-Z0-9.\-]*):(\d{2,5})`)
+
+// proxyDeps parses reverse-proxy upstreams from caddy and nginx config into
+// declared "service" dependencies (the web server depends on its upstreams).
+// Best-effort; unresolved/own-host targets are dropped server-side.
+func proxyDeps() []model.DeclaredDep {
+	var deps []model.DeclaredDep
+	seen := map[string]bool{}
+	add := func(from, host string, port int) {
+		if host == "" || port == 0 || len(deps) >= 200 {
+			return
+		}
+		k := from + "|" + host + ":" + strconv.Itoa(port)
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		deps = append(deps, model.DeclaredDep{Kind: model.DepKindService, From: from, TargetHost: host, TargetPort: port})
+	}
+	scan := func(from, content string, triggers []string) {
+		for _, line := range strings.Split(content, "\n") {
+			l := strings.TrimSpace(line)
+			if l == "" || strings.HasPrefix(l, "#") {
+				continue
+			}
+			hit := false
+			for _, t := range triggers {
+				if strings.Contains(l, t) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				continue
+			}
+			for _, m := range proxyHostPortRe.FindAllStringSubmatch(l, -1) {
+				port, _ := strconv.Atoi(m[2])
+				add(from, m[1], port)
+			}
+		}
+	}
+	glob := func(pats ...string) []string {
+		var fs []string
+		for _, p := range pats {
+			if m, err := filepath.Glob(p); err == nil {
+				fs = append(fs, m...)
+			}
+		}
+		return fs
+	}
+	// Caddy: reverse_proxy / "to" upstream directives.
+	for _, f := range glob("/etc/caddy/Caddyfile", "/etc/caddy/*.caddy", "/etc/caddy/conf.d/*") {
+		if b, err := readCappedFile(f, 512*1024); err == nil {
+			scan("caddy", string(b), []string{"reverse_proxy", "to "})
+		}
+	}
+	// Nginx: *_pass directives point at upstreams (bare "server" lines are skipped
+	// to avoid confusing listen addresses with upstream targets).
+	for _, f := range glob("/etc/nginx/nginx.conf", "/etc/nginx/conf.d/*.conf", "/etc/nginx/sites-enabled/*") {
+		if b, err := readCappedFile(f, 512*1024); err == nil {
+			scan("nginx", string(b), []string{"proxy_pass", "fastcgi_pass", "uwsgi_pass", "grpc_pass"})
+		}
+	}
+	return deps
 }
 
 // systemdDeps returns service→service dependencies of the running services. Hard =
@@ -65,16 +133,19 @@ func systemdDeps(ctx context.Context) []model.DeclaredDep {
 		add(requires, true)
 		add(bindsto, true)
 		add(after, false)
-		// Postgres DSNs in the service's environment → cross-host "database" deps
-		// (host/port only; credentials are never extracted or stored).
-		for _, dsn := range pgDSNRe.FindAllString(env, -1) {
-			for _, hp := range dsnHosts(dsn) {
-				k := id + "|db|" + hp.host
+		// Connection-string URIs in the service's environment → cross-host deps
+		// (host/port only; credentials are never extracted or stored). Covers
+		// Postgres/MySQL/Mongo (database), Redis (cache), AMQP/Kafka (queue), and
+		// http(s) upstreams (service).
+		for _, uri := range connURIRe.FindAllString(env, -1) {
+			kind, defPort := schemeKind(uri)
+			for _, hp := range dsnHosts(uri, defPort) {
+				k := id + "|" + kind + "|" + hp.host
 				if seen[k] || len(deps) >= 200 {
 					continue
 				}
 				seen[k] = true
-				deps = append(deps, model.DeclaredDep{Kind: model.DepKindDatabase, From: id, TargetHost: hp.host, TargetPort: hp.port, Hard: true})
+				deps = append(deps, model.DeclaredDep{Kind: kind, From: id, TargetHost: hp.host, TargetPort: hp.port, Hard: kind == model.DepKindDatabase})
 			}
 		}
 		id, requires, bindsto, after, env = "", "", "", "", ""
@@ -109,17 +180,47 @@ func systemdDeps(ctx context.Context) []model.DeclaredDep {
 	return deps
 }
 
-var pgDSNRe = regexp.MustCompile(`postgres(?:ql)?://\S+`)
+// connURIRe matches connection-string URIs for the service schemes we map to
+// declared dependencies.
+var connURIRe = regexp.MustCompile(`(?i)(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?|kafka|https?)://\S+`)
+
+// schemeKind maps a connection URI to its declared-dependency kind and default
+// port (port is display-only; resolution to a fleet host is by host).
+func schemeKind(uri string) (string, int) {
+	scheme := strings.ToLower(uri)
+	if i := strings.Index(scheme, "://"); i >= 0 {
+		scheme = scheme[:i]
+	}
+	switch scheme {
+	case "postgres", "postgresql":
+		return model.DepKindDatabase, 5432
+	case "mysql":
+		return model.DepKindDatabase, 3306
+	case "mongodb", "mongodb+srv":
+		return model.DepKindDatabase, 27017
+	case "redis", "rediss":
+		return model.DepKindCache, 6379
+	case "amqp", "amqps":
+		return model.DepKindQueue, 5672
+	case "kafka":
+		return model.DepKindQueue, 9092
+	case "http":
+		return model.DepKindService, 80
+	case "https":
+		return model.DepKindService, 443
+	}
+	return model.DepKindService, 0
+}
 
 type hostPort struct {
 	host string
 	port int
 }
 
-// dsnHosts extracts the target host(s) and port from a libpq postgres:// URI,
-// ignoring credentials. Handles multi-host authorities (failover DSNs) like
-// "h1,h2:5432" and per-host ports "h1:5432,h2:5433".
-func dsnHosts(dsn string) []hostPort {
+// dsnHosts extracts the target host(s) and port from a connection URI, ignoring
+// credentials. Handles multi-host authorities (failover DSNs) like "h1,h2:5432"
+// and per-host ports "h1:5432,h2:5433". defPort fills hosts that specify no port.
+func dsnHosts(dsn string, defPort int) []hostPort {
 	rest := dsn
 	if i := strings.Index(rest, "://"); i >= 0 {
 		rest = rest[i+3:]
@@ -151,7 +252,7 @@ func dsnHosts(dsn string) []hostPort {
 			out[i].port = global
 		}
 		if out[i].port == 0 {
-			out[i].port = 5432
+			out[i].port = defPort
 		}
 	}
 	return out

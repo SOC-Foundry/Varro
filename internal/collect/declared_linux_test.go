@@ -52,7 +52,7 @@ func TestDSNHosts(t *testing.T) {
 		{"postgres://u@h1:5432,h2:5433/d", []hostPort{{"h1", 5432}, {"h2", 5433}}},
 	}
 	for _, c := range cases {
-		got := dsnHosts(c.dsn)
+		got := dsnHosts(c.dsn, 5432)
 		if len(got) != len(c.want) {
 			t.Errorf("dsnHosts(%q) = %+v, want %+v", c.dsn, got, c.want)
 			continue
@@ -67,6 +67,71 @@ func TestDSNHosts(t *testing.T) {
 			if strings.Contains(hp.host, "s3cret") || strings.Contains(hp.host, "@") {
 				t.Errorf("credential leaked into host: %q", hp.host)
 			}
+		}
+	}
+}
+
+func TestSchemeKind(t *testing.T) {
+	cases := []struct {
+		uri, kind string
+		port      int
+	}{
+		{"postgres://u@h:5432/d", "database", 5432},
+		{"mysql://h/d", "database", 3306},
+		{"redis://h:6379", "cache", 6379},
+		{"rediss://h", "cache", 6379},
+		{"amqp://h", "queue", 5672},
+		{"kafka://h:9092", "queue", 9092},
+		{"https://api.internal/v1", "service", 443},
+		{"http://h", "service", 80},
+	}
+	for _, c := range cases {
+		k, p := schemeKind(c.uri)
+		if k != c.kind || p != c.port {
+			t.Errorf("schemeKind(%q) = %q/%d, want %q/%d", c.uri, k, p, c.kind, c.port)
+		}
+	}
+}
+
+func TestConnURIScan(t *testing.T) {
+	// Simulate a systemd Environment line with several connection strings.
+	env := "FOO=bar REDIS_URL=redis://cache.int:6379/0 DB=postgres://u:p@db.int:5432/app AMQP=amqp://mq.int:5672 UP=https://api.int/health"
+	got := map[string]string{} // host -> kind
+	for _, uri := range connURIRe.FindAllString(env, -1) {
+		kind, defPort := schemeKind(uri)
+		for _, hp := range dsnHosts(uri, defPort) {
+			got[hp.host] = kind
+			if strings.Contains(hp.host, ":p@") || strings.Contains(hp.host, "p@") {
+				t.Errorf("credential leaked into host: %q", hp.host)
+			}
+		}
+	}
+	want := map[string]string{"cache.int": "cache", "db.int": "database", "mq.int": "queue", "api.int": "service"}
+	for h, k := range want {
+		if got[h] != k {
+			t.Errorf("host %q: got kind %q, want %q (all: %+v)", h, got[h], k, got)
+		}
+	}
+}
+
+func TestProxyDeps(t *testing.T) {
+	// Point caddy glob at a temp dir with a Caddyfile by symlinking is awkward;
+	// instead test the scan logic through a temp file read is internal — so just
+	// exercise the regex + scan via a small inline harness mirroring proxyDeps.
+	content := "example.com {\n  reverse_proxy backend.int:8080 backend2.int:8080\n  reverse_proxy /api/* http://api.int:9000\n}\n"
+	var hosts []string
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, "reverse_proxy") {
+			continue
+		}
+		for _, m := range proxyHostPortRe.FindAllStringSubmatch(line, -1) {
+			hosts = append(hosts, m[1]+":"+m[2])
+		}
+	}
+	joined := strings.Join(hosts, ",")
+	for _, want := range []string{"backend.int:8080", "backend2.int:8080", "api.int:9000"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("proxy scan missing %q; got %q", want, joined)
 		}
 	}
 }

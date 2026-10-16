@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.94.0] — 2026-10-15
+- Declared overlay — more sources: the agent now derives declared dependencies beyond Postgres. It scans each running service's environment for connection-string URIs — Postgres/MySQL/MongoDB (database), Redis (cache), AMQP/Kafka (queue), and http(s) upstreams (service) — and parses reverse-proxy upstreams from **caddy** (`reverse_proxy`/`to`) and **nginx** (`proxy_pass`/`fastcgi_pass`/…) config. Host/port only; credentials never extracted. Each kind renders with its own label in the topology declared overlay; cross-host targets resolve to fleet hosts, others are dropped.
+
 ## [v0.93.0] — 2026-10-15
 - Topology declared overlay: a service's **Postgres DSN** is now a declared "database" dependency. The agent reads `postgres://` connection strings from each running service's systemd environment and emits a declared edge service→DB host (host/port only — credentials are never extracted or stored). Multi-host failover DSNs (`host=h1,h2`) produce one edge per host. This makes e.g. `varro-collector → varro-pg`/`varro-pg-2` show as declared (configured), not just observed.
 - Verified live with a production pg_auto_failover switchover: with the cluster steady, `varro-collector → varro-pg-2` showed as declared-only (the idle failover target). After a graceful switchover promoting `varro-pg-2`, the collector's read-write DSN followed the new primary and that edge flipped to **declared + observed**, while `varro-collector → varro-pg` became declared-only — then both reverted on fail-back. Confirms the overlay tracks reality in real time: a declared dependency is permanent, the observed layer reflects what's actually in use (including across a failover). Switchover + fail-back were clean (~5s write pause each, health 200 throughout).

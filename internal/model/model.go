@@ -52,7 +52,10 @@ const (
 	DepKindSystemd     = "systemd"     // local service→service ordering/requirement
 	DepKindReplication = "replication" // Postgres streaming replication (standby→primary)
 	DepKindHAMonitor   = "ha-monitor"  // pg_auto_failover node→monitor
-	DepKindDatabase    = "database"    // a service's Postgres DSN (service→DB host)
+	DepKindDatabase    = "database"    // a service's DB connection string (service→DB host)
+	DepKindCache       = "cache"       // redis/memcached connection
+	DepKindQueue       = "queue"       // amqp/kafka connection
+	DepKindService     = "service"     // generic http(s)/gRPC upstream (incl. nginx/caddy reverse proxy)
 )
 
 // DeclaredDep is a configured dependency the agent read from host config, not one
