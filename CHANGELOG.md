@@ -7,6 +7,13 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.92.0] — 2026-10-15
+- Topology: **declared-dependency overlay** (toggle: "declared deps"). Shows dependencies that are *configured*, not just *observed* — so a dependency that's idle this window (or a hard requirement) still appears. Sources, all read passively by the agent:
+  - **Postgres streaming replication** (`primary_conninfo`) → declared edge standby → primary.
+  - **pg_auto_failover monitor** (`pg_autoctl.cfg`) → declared edge each node → monitor.
+  - **systemd** `Requires=`/`BindsTo=`/`After=` per running service (hard vs. ordering) → shown in the node inspector (intra-host service deps).
+  Declared edges render dashed/violet alongside observed edges, so you can see which configured deps are actually exercised (both) vs. declared-but-idle (declared only); clicking a declared edge says which. Carried on the snapshot (no schema change), refreshed every 5 min; cross-host targets resolved to fleet hosts via the IP/hostname index. `GET /api/v1/topology?declared=1`.
+
 ## [v0.91.0] — 2026-10-14
 - Topology: added a **7d** range to the time-range selector (was 15m/1h/6h/24h). To make it meaningful, learned topology edges now have a dedicated retention — kept at least 14 days instead of expiring on the short sample retention (72h in prod) — so the 7d window and infrequent talkers (a service that only calls another once a day) aren't lost. Edges are tiny (deduplicated per src/dst/process/port), so the longer retention is cheap.
 

@@ -41,6 +41,29 @@ type Snapshot struct {
 	// Conns are short-lived outbound connects captured by the eBPF connect
 	// sensor since the last sample (process-attributed).
 	Conns []ConnSample `json:"conns,omitempty"`
+	// DeclaredDeps are configured ("declared") dependencies parsed from the host
+	// (systemd unit ordering + Postgres/HA connection config), as opposed to the
+	// dependencies observed from live traffic. Refreshed periodically.
+	DeclaredDeps []DeclaredDep `json:"declared_deps,omitempty"`
+}
+
+// Declared-dependency kinds.
+const (
+	DepKindSystemd     = "systemd"     // local service→service ordering/requirement
+	DepKindReplication = "replication" // Postgres streaming replication (standby→primary)
+	DepKindHAMonitor   = "ha-monitor"  // pg_auto_failover node→monitor
+)
+
+// DeclaredDep is a configured dependency the agent read from host config, not one
+// inferred from observed traffic. Cross-host deps (TargetHost set) become overlay
+// edges on the topology graph; host-local ones (systemd) show in the node inspector.
+type DeclaredDep struct {
+	Kind       string `json:"kind"`                  // systemd | replication | ha-monitor
+	From       string `json:"from,omitempty"`        // local service/role (e.g. "varro-server.service", "postgres")
+	Target     string `json:"target,omitempty"`      // target unit (systemd) or human descriptor
+	TargetHost string `json:"target_host,omitempty"` // cross-host dep: IP/host of the dependency
+	TargetPort int    `json:"target_port,omitempty"`
+	Hard       bool   `json:"hard,omitempty"` // Requires/BindsTo (hard) vs After/Wants (ordering)
 }
 
 // ExecSample is one process exec observed by the eBPF sensor.
@@ -259,6 +282,10 @@ type TopoNode struct {
 	Containers  int      `json:"containers,omitempty"` // running container count
 	Platform    string   `json:"platform,omitempty"`
 	External    bool     `json:"external,omitempty"` // an external destination (website/service), not a fleet host
+	// DeclaredDeps are this host's configured service-level dependencies (systemd
+	// ordering/requirements), shown in the node inspector. Populated only when the
+	// declared overlay is requested.
+	DeclaredDeps []DeclaredDep `json:"declared_deps,omitempty"`
 }
 
 type EdgeProcess struct {
@@ -280,6 +307,12 @@ type TopoEdge struct {
 	RemoteNames []string      `json:"remote_names,omitempty"` // reverse-DNS of Remotes, same order ("" when unresolved)
 	RemoteGeo   []string      `json:"remote_geo,omitempty"`   // "country/ASN" of Remotes, same order (when GeoIP enabled)
 	Malicious   bool          `json:"malicious,omitempty"`    // a remote matches the threat-intel feed
+	// Declared marks an edge that comes from configured dependency (systemd/pg
+	// config) rather than observed traffic. DepKind names the source; Hard is a
+	// requirement vs. ordering/best-effort.
+	Declared bool   `json:"declared,omitempty"`
+	DepKind  string `json:"dep_kind,omitempty"`
+	Hard     bool   `json:"hard,omitempty"`
 }
 
 type Event struct {

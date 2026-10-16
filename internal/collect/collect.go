@@ -61,6 +61,9 @@ type Collector struct {
 	connTracer connDrainer // eBPF connect sensor, nil when unavailable
 	dns        dnsLookup   // passive DNS watcher, nil when unavailable
 
+	declared     []model.DeclaredDep // cached declared deps (systemd + pg config)
+	declaredScan time.Time
+
 	lastPosture     []model.PostureCheck
 	lastPostureScan time.Time
 	lastHealth      model.HealthStatus
@@ -170,6 +173,7 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.sampleFIM(snap)
 	c.sampleContainers(ctx, snap)
 	c.sampleFlows(snap)
+	c.sampleDeclared(ctx, now, snap)
 	if c.execTracer != nil {
 		snap.EBPF = true
 		// Distinct comms since last sample, capped. Catches short-lived
@@ -204,6 +208,16 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 	c.attachDomains(snap)
 
 	return snap, nil
+}
+
+// sampleDeclared refreshes the host's declared dependencies at most every 5
+// minutes (they change rarely) and carries the cached set on every snapshot.
+func (c *Collector) sampleDeclared(ctx context.Context, now time.Time, snap *model.Snapshot) {
+	if c.declared == nil || now.Sub(c.declaredScan) > 5*time.Minute {
+		c.declared = CollectDeclaredDeps(ctx)
+		c.declaredScan = now
+	}
+	snap.DeclaredDeps = c.declared
 }
 
 // attachDomains labels external flows and connections with the hostname the

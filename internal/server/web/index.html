@@ -338,6 +338,7 @@
       <label style="font-size:12px; color:var(--accent)"><input type="checkbox" id="fBlast"> blast radius (click a host)</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fCollapse"> collapse groups</label>
       <label style="font-size:12px; color:var(--dim)"><input type="checkbox" id="fHulls"> group boxes</label>
+      <label style="font-size:12px; color:#bc8cff" title="overlay configured dependencies (systemd + Postgres/HA) as dashed edges, in addition to observed traffic"><input type="checkbox" id="fDeclared"> declared deps</label>
     </div>
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px">
       <span style="font-size:12px; color:var(--dim)">time&nbsp;travel</span>
@@ -3518,7 +3519,7 @@ $("topoLink").onclick = e => { e.preventDefault(); closeSidebar(); showTopo(true
 $("topoBack").onclick = e => { e.preventDefault(); showTopo(false); };
 
 let topoWindow = 60; // minutes
-let topoAt = null, topoCollapse = false, topoHulls = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
+let topoAt = null, topoCollapse = false, topoHulls = false, topoDeclared = false, topoRaw = { nodes: [], edges: [] }, topoTimeline = [];
 const TOPO_RANGES = [["15m",15],["1h",60],["6h",360],["24h",1440],["7d",10080]];
 
 function setupTopoControls() {
@@ -3543,6 +3544,7 @@ function setupTopoControls() {
   for (const id of ["fThreat","fNew","fExposed"]) $(id).onchange = () => {};
   $("fCollapse").onchange = () => { topoCollapse = $("fCollapse").checked; applyView(); };
   $("fHulls").onchange = () => { topoHulls = $("fHulls").checked; };
+  $("fDeclared").onchange = () => { topoDeclared = $("fDeclared").checked; loadTopo(); };
   $("topoTime").oninput = () => {
     const i = +$("topoTime").value;
     if (i >= topoTimeline.length) {
@@ -3592,7 +3594,7 @@ async function loadTopo() {
   try {
     const url = topoAt
       ? orgQ("/api/v1/topology?at=" + topoAt)
-      : orgQ("/api/v1/topology?minutes=" + topoWindow);
+      : orgQ("/api/v1/topology?minutes=" + topoWindow + (topoDeclared ? "&declared=1" : ""));
     topoRaw = await getJSON(url);
     applyView();
     if (!topoAt) rebuildTimeline();
@@ -3711,7 +3713,9 @@ function edgeProcText(p) {
   return p.dst_process ? `${p.process} → ${p.dst_process}:${p.port}` : `${p.process}:${p.port}`;
 }
 
+const DEP_KIND_LABEL = { replication: "declared · replication", "ha-monitor": "declared · HA monitor", systemd: "declared · systemd" };
 function edgeLabel(e) {
+  if (e.declared) return (DEP_KIND_LABEL[e.dep_kind] || "declared") + (e.hard ? " ◆" : "");
   if (!e.internal) return e.bytes ? fmtBytes(e.bytes, "") : `${e.count} conns`;
   const ps = e.processes ?? [];
   let label = ps.slice(0, 2).map(edgeProcText).join("  ");
@@ -3817,14 +3821,17 @@ function tickTopo() {
     if (e.malicious) color = "#f85149";
     else if (e._new) color = `rgba(121,192,255,${0.5 + 0.5 * pulse})`, width += 1;
     if (inBlast) color = "#ff7b00", width += 1; // attack path
+    if (e.declared) { color = "#bc8cff"; width = 1.6; } // declared overlay — config, not traffic
     if (isSel) color = "#79c0ff";
     ctx.globalAlpha = dimmed ? 0.18 : 1;
     ctx.strokeStyle = color;
     ctx.lineWidth = isSel ? width + 1.2 : width;
+    if (e.declared) ctx.setLineDash([5, 4]); // dashed = declared/configured
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y);
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // Flowing arrowheads along the curve (two per edge, phase-shifted),
     // sized to the edge weight.
@@ -3853,7 +3860,7 @@ function tickTopo() {
     ctx.beginPath();
     ctx.roundRect(mid.x - tw / 2 - 6, mid.y - 9, tw + 12, 18, 9);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = dimmed ? "#4d5560" : e.internal ? "#7ee2a8" : "#8b949e";
+    ctx.fillStyle = dimmed ? "#4d5560" : e.declared ? "#d2b8ff" : e.internal ? "#7ee2a8" : "#8b949e";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(label, mid.x, mid.y + 0.5);
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
@@ -3994,9 +4001,14 @@ function renderTopoInfo() {
       related.map(e => {
         const other = id => id === "internet" ? "internet" : esc(topoNodes.find(x => x.id === id)?.hostname ?? id);
         const dir = e.src === n.id ? `→ ${other(e.dst)}` : `← ${other(e.src)}`;
-        const what = e.internal ? (e.processes ?? []).map(p => esc(edgeProcText(p))).join(", ") : `${e.count} conns`;
-        return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${dir} <span style="color:var(--dim)">${what}</span></div>`;
+        const what = e.declared ? esc(edgeLabel(e)) : e.internal ? (e.processes ?? []).map(p => esc(edgeProcText(p))).join(", ") : `${e.count} conns`;
+        const col = e.declared ? "#d2b8ff" : "var(--dim)";
+        return `<div style="font-family:var(--mono); font-size:12.5px; padding:3px 0">${dir} <span style="color:${col}">${what}</span></div>`;
       }).join("") +
+      ((n.declared_deps ?? []).length
+        ? `<div style="margin-top:8px; color:#bc8cff; font-size:11px; text-transform:uppercase; letter-spacing:.4px">declared service deps</div>` +
+          (n.declared_deps).map(d => `<div style="font-family:var(--mono); font-size:12px; padding:1px 0; color:var(--dim)">${esc(d.from)} <span style="color:#bc8cff">${d.hard ? "requires" : "after"}</span> ${esc(d.target)}</div>`).join("")
+        : "") +
       (blastSet && blastSet.has(n.id)
         ? `<div style="color:#ff7b00; font-size:12.5px; margin-top:6px">⟐ blast radius: can reach ${blastSet.size - 1} host${blastSet.size - 1 === 1 ? "" : "s"} via lateral paths</div>`
         : "") +
@@ -4015,6 +4027,14 @@ function renderTopoInfo() {
     box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}${mal}</h3>
       <div style="font-family:var(--mono); font-size:12.5px">${e.count} active connection${e.count === 1 ? "" : "s"}${vol}` +
       (remotes ? `<br><span style="color:var(--dim)">top remotes:<br>${remotes}</span>` : "") + `</div>`;
+    return;
+  }
+  if (e.declared) {
+    const observed = topoEdges.some(x => !x.declared && x.internal && x.src === e.src && x.dst === e.dst);
+    box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)} <span style="color:#bc8cff; font-size:12px">◇ declared</span></h3>
+      <div style="font-family:var(--mono); font-size:12.5px; color:#d2b8ff">${esc(DEP_KIND_LABEL[e.dep_kind] || "declared dependency")}${e.hard ? " · hard requirement" : " · ordering"}</div>
+      <div style="color:var(--dim); font-size:12px; margin-top:6px">${esc(name(e.src))} is <b>configured</b> to depend on ${esc(name(e.dst))} (from host config, not observed traffic).` +
+      (observed ? ` <span style="color:var(--green)">Also observed in live traffic ✓</span>` : ` <span style="color:var(--amber)">Not seen in live traffic this window</span>`) + `</div>`;
     return;
   }
   box.innerHTML = `<h3>${name(e.src)} → ${name(e.dst)}</h3>

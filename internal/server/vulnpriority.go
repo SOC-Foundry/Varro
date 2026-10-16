@@ -48,7 +48,7 @@ func (s *Server) buildVulnPriority(ctx context.Context, scope []string) ([]model
 	}
 
 	// Exposure signals from the live topology (last 24h).
-	_, edges, err := s.buildTopology(ctx, scope, 1440)
+	_, edges, err := s.buildTopology(ctx, scope, 1440, false)
 	if err != nil {
 		return nil, err
 	}

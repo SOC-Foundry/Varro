@@ -275,12 +275,13 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		w.Write(data)
 		return
 	}
-	nodes, edges, err := s.buildTopology(r.Context(), scope, minutes)
+	declared := r.URL.Query().Get("declared") == "1"
+	nodes, edges, err := s.buildTopology(r.Context(), scope, minutes, declared)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"nodes": nodes, "edges": edges, "window_minutes": minutes})
+	writeJSON(w, map[string]any{"nodes": nodes, "edges": edges, "window_minutes": minutes, "declared": declared})
 }
 
 // handleTopologyTimeline returns the available historical-snapshot timestamps
@@ -320,7 +321,7 @@ func (s *Server) topoSnapshotLoop(ctx context.Context) {
 			}
 			now := time.Now().Unix()
 			for _, org := range orgs {
-				nodes, edges, err := s.buildTopology(ctx, []string{org.ID}, 60)
+				nodes, edges, err := s.buildTopology(ctx, []string{org.ID}, 60, false)
 				if err != nil {
 					continue
 				}
@@ -376,7 +377,7 @@ func resolveCalleeProcesses(edges []model.TopoEdge, snaps map[string]*model.Snap
 	}
 }
 
-func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int) ([]model.TopoNode, []model.TopoEdge, error) {
+func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int, declared bool) ([]model.TopoNode, []model.TopoEdge, error) {
 	since := time.Now().Add(-time.Duration(minutes) * time.Minute)
 
 	eps, err := s.store.Endpoints(ctx, scope)
@@ -617,8 +618,67 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int)
 		}
 	}
 
+	if declared {
+		addDeclaredOverlay(nodes, &edges, snaps, inScope, s.ips, eps)
+	}
+
 	if edges == nil {
 		edges = []model.TopoEdge{}
 	}
 	return nodes, edges, nil
+}
+
+// addDeclaredOverlay augments the graph with configured dependencies from each
+// host's snapshot: cross-host deps (replication, HA monitor) become dashed
+// "declared" edges resolved to the target fleet host; host-local systemd deps are
+// attached to the node for the inspector. Observed and declared edges coexist, so
+// you can see which configured deps are actually exercised (both) and which are
+// declared-but-idle (declared only).
+func addDeclaredOverlay(nodes []model.TopoNode, edges *[]model.TopoEdge, snaps map[string]*model.Snapshot, inScope map[string]bool, ips *ipIndex, eps []model.EndpointSummary) {
+	hostToID := map[string]string{}
+	for _, ep := range eps {
+		if ep.Hostname != "" {
+			hostToID[ep.Hostname] = ep.ID
+		}
+	}
+	// Host-local (systemd) deps → node inspector.
+	for i := range nodes {
+		snap := snaps[nodes[i].ID]
+		if snap == nil {
+			continue
+		}
+		for _, dd := range snap.DeclaredDeps {
+			if dd.TargetHost == "" {
+				nodes[i].DeclaredDeps = append(nodes[i].DeclaredDeps, dd)
+			}
+		}
+	}
+	// Cross-host deps → declared edges.
+	seen := map[string]bool{}
+	for id, snap := range snaps {
+		if snap == nil || !inScope[id] {
+			continue
+		}
+		for _, dd := range snap.DeclaredDeps {
+			if dd.TargetHost == "" {
+				continue
+			}
+			dst := ips.lookup(dd.TargetHost)
+			if dst == "" {
+				dst = hostToID[dd.TargetHost]
+			}
+			if dst == "" || dst == id || !inScope[dst] {
+				continue // target isn't a monitored fleet host
+			}
+			k := id + "|" + dst + "|" + dd.Kind
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			*edges = append(*edges, model.TopoEdge{
+				Src: id, Dst: dst, Internal: true, Declared: true,
+				DepKind: dd.Kind, Hard: dd.Hard, Count: 1,
+			})
+		}
+	}
 }

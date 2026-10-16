@@ -24,7 +24,7 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 			minutes = v
 		}
 	}
-	nodes, edges, err := s.buildTopology(r.Context(), scope, minutes)
+	nodes, edges, err := s.buildTopology(r.Context(), scope, minutes, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

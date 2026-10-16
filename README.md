@@ -8,7 +8,7 @@ API, Prometheus exporter, and CLI.
 
 Everything is a single static binary — `varro` — with subcommands.
 
-**Current release:** [v0.91.0](https://github.com/SOC-Foundry/Varro/releases/tag/v0.91.0) · [changelog](CHANGELOG.md)
+**Current release:** [v0.92.0](https://github.com/SOC-Foundry/Varro/releases/tag/v0.92.0) · [changelog](CHANGELOG.md)
 
 ## Architecture
 
