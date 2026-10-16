@@ -5,6 +5,7 @@ package collect
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,39 @@ func TestParsePrimaryConninfo(t *testing.T) {
 	h2, pt2 := parsePrimaryConninfo(p2)
 	if h2 != "db.internal" || pt2 != 0 {
 		t.Fatalf("parsePrimaryConninfo(no port) = %q/%d, want db.internal/0", h2, pt2)
+	}
+}
+
+func TestDSNHosts(t *testing.T) {
+	cases := []struct {
+		dsn  string
+		want []hostPort
+	}{
+		// real collector DSN: multi-host failover, shared port, creds + query stripped
+		{"postgres://varro:s3cret@10.128.0.10,10.128.0.12:5432/varro?sslmode=verify-ca&target_session_attrs=read-write",
+			[]hostPort{{"10.128.0.10", 5432}, {"10.128.0.12", 5432}}},
+		// single host, default port
+		{"postgresql://u:p@db.internal/app", []hostPort{{"db.internal", 5432}}},
+		// per-host ports
+		{"postgres://u@h1:5432,h2:5433/d", []hostPort{{"h1", 5432}, {"h2", 5433}}},
+	}
+	for _, c := range cases {
+		got := dsnHosts(c.dsn)
+		if len(got) != len(c.want) {
+			t.Errorf("dsnHosts(%q) = %+v, want %+v", c.dsn, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("dsnHosts(%q)[%d] = %+v, want %+v", c.dsn, i, got[i], c.want[i])
+			}
+		}
+		// never leak credentials into the host
+		for _, hp := range got {
+			if strings.Contains(hp.host, "s3cret") || strings.Contains(hp.host, "@") {
+				t.Errorf("credential leaked into host: %q", hp.host)
+			}
+		}
 	}
 }
 

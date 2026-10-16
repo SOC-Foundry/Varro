@@ -37,14 +37,14 @@ func systemdDeps(ctx context.Context) []model.DeclaredDep {
 	if len(units) == 0 {
 		return nil
 	}
-	args := append([]string{"show", "--no-pager", "-p", "Id", "-p", "Requires", "-p", "BindsTo", "-p", "After"}, units...)
+	args := append([]string{"show", "--no-pager", "-p", "Id", "-p", "Requires", "-p", "BindsTo", "-p", "After", "-p", "Environment"}, units...)
 	out, err := exec.CommandContext(ctx, "systemctl", args...).Output()
 	if err != nil {
 		return nil
 	}
 	var deps []model.DeclaredDep
 	seen := map[string]bool{}
-	id, requires, bindsto, after := "", "", "", ""
+	id, requires, bindsto, after, env := "", "", "", "", ""
 	flush := func() {
 		if id == "" {
 			return
@@ -65,7 +65,19 @@ func systemdDeps(ctx context.Context) []model.DeclaredDep {
 		add(requires, true)
 		add(bindsto, true)
 		add(after, false)
-		id, requires, bindsto, after = "", "", "", ""
+		// Postgres DSNs in the service's environment → cross-host "database" deps
+		// (host/port only; credentials are never extracted or stored).
+		for _, dsn := range pgDSNRe.FindAllString(env, -1) {
+			for _, hp := range dsnHosts(dsn) {
+				k := id + "|db|" + hp.host
+				if seen[k] || len(deps) >= 200 {
+					continue
+				}
+				seen[k] = true
+				deps = append(deps, model.DeclaredDep{Kind: model.DepKindDatabase, From: id, TargetHost: hp.host, TargetPort: hp.port, Hard: true})
+			}
+		}
+		id, requires, bindsto, after, env = "", "", "", "", ""
 	}
 	sc := bufio.NewScanner(strings.NewReader(string(out)))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -89,10 +101,75 @@ func systemdDeps(ctx context.Context) []model.DeclaredDep {
 			bindsto = v
 		case "After":
 			after = v
+		case "Environment":
+			env = v
 		}
 	}
 	flush()
 	return deps
+}
+
+var pgDSNRe = regexp.MustCompile(`postgres(?:ql)?://\S+`)
+
+type hostPort struct {
+	host string
+	port int
+}
+
+// dsnHosts extracts the target host(s) and port from a libpq postgres:// URI,
+// ignoring credentials. Handles multi-host authorities (failover DSNs) like
+// "h1,h2:5432" and per-host ports "h1:5432,h2:5433".
+func dsnHosts(dsn string) []hostPort {
+	rest := dsn
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	auth := rest
+	if i := strings.IndexAny(auth, "/?"); i >= 0 {
+		auth = auth[:i] // drop path + query
+	}
+	if i := strings.LastIndex(auth, "@"); i >= 0 {
+		auth = auth[i+1:] // drop credentials
+	}
+	if auth == "" {
+		return nil
+	}
+	var out []hostPort
+	global := 0
+	for _, p := range strings.Split(auth, ",") {
+		h, pt := splitHostPortNum(p)
+		if h == "" {
+			continue
+		}
+		out = append(out, hostPort{h, pt})
+		if pt != 0 {
+			global = pt
+		}
+	}
+	for i := range out {
+		if out[i].port == 0 {
+			out[i].port = global
+		}
+		if out[i].port == 0 {
+			out[i].port = 5432
+		}
+	}
+	return out
+}
+
+// splitHostPortNum splits "host:port" only when the suffix is numeric (so an IPv6
+// address without a port isn't truncated); otherwise the whole string is the host.
+func splitHostPortNum(s string) (string, int) {
+	s = strings.TrimSpace(s)
+	i := strings.LastIndex(s, ":")
+	if i < 0 {
+		return s, 0
+	}
+	port, err := strconv.Atoi(s[i+1:])
+	if err != nil {
+		return s, 0
+	}
+	return s[:i], port
 }
 
 func runningServices(ctx context.Context) []string {

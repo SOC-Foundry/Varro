@@ -52,6 +52,7 @@ const (
 	DepKindSystemd     = "systemd"     // local service→service ordering/requirement
 	DepKindReplication = "replication" // Postgres streaming replication (standby→primary)
 	DepKindHAMonitor   = "ha-monitor"  // pg_auto_failover node→monitor
+	DepKindDatabase    = "database"    // a service's Postgres DSN (service→DB host)
 )
 
 // DeclaredDep is a configured dependency the agent read from host config, not one

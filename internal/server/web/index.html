@@ -3713,7 +3713,7 @@ function edgeProcText(p) {
   return p.dst_process ? `${p.process} → ${p.dst_process}:${p.port}` : `${p.process}:${p.port}`;
 }
 
-const DEP_KIND_LABEL = { replication: "declared · replication", "ha-monitor": "declared · HA monitor", systemd: "declared · systemd" };
+const DEP_KIND_LABEL = { replication: "declared · replication", "ha-monitor": "declared · HA monitor", database: "declared · database", systemd: "declared · systemd" };
 function edgeLabel(e) {
   if (e.declared) return (DEP_KIND_LABEL[e.dep_kind] || "declared") + (e.hard ? " ◆" : "");
   if (!e.internal) return e.bytes ? fmtBytes(e.bytes, "") : `${e.count} conns`;
