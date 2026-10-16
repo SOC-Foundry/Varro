@@ -9,6 +9,7 @@ orgs predate tagged releases (v0.1–v0.3).
 
 ## [v0.93.0] — 2026-10-15
 - Topology declared overlay: a service's **Postgres DSN** is now a declared "database" dependency. The agent reads `postgres://` connection strings from each running service's systemd environment and emits a declared edge service→DB host (host/port only — credentials are never extracted or stored). Multi-host failover DSNs (`host=h1,h2`) produce one edge per host. This makes e.g. `varro-collector → varro-pg`/`varro-pg-2` show as declared (configured), not just observed.
+- Verified live with a production pg_auto_failover switchover: with the cluster steady, `varro-collector → varro-pg-2` showed as declared-only (the idle failover target). After a graceful switchover promoting `varro-pg-2`, the collector's read-write DSN followed the new primary and that edge flipped to **declared + observed**, while `varro-collector → varro-pg` became declared-only — then both reverted on fail-back. Confirms the overlay tracks reality in real time: a declared dependency is permanent, the observed layer reflects what's actually in use (including across a failover). Switchover + fail-back were clean (~5s write pause each, health 200 throughout).
 
 ## [v0.92.0] — 2026-10-15
 - Topology: **declared-dependency overlay** (toggle: "declared deps"). Shows dependencies that are *configured*, not just *observed* — so a dependency that's idle this window (or a hard requirement) still appears. Sources, all read passively by the agent:
