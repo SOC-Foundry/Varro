@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -93,6 +94,24 @@ type Server struct {
 
 	corr *correlator // cross-endpoint IOC correlation
 	detc *detCache   // per-org custom detection rules + built-in overrides
+
+	driftMu   sync.Mutex           // guards driftSeen (dependency-drift alert dedup)
+	driftSeen map[string]time.Time // "key" -> last time we alerted, rate-limited
+}
+
+// driftShouldAlert rate-limits a drift/dependency alert key to at most once per
+// window, so a persistently-down dependency doesn't re-notify every cycle.
+func (s *Server) driftShouldAlert(key string, every time.Duration) bool {
+	s.driftMu.Lock()
+	defer s.driftMu.Unlock()
+	if s.driftSeen == nil {
+		s.driftSeen = map[string]time.Time{}
+	}
+	if last, ok := s.driftSeen[key]; ok && time.Since(last) < every {
+		return false
+	}
+	s.driftSeen[key] = time.Now()
+	return true
 }
 
 func New(cfg Config, st *store.Store, log *slog.Logger) *Server {
@@ -245,6 +264,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.topoSnapshotLoop(ctx)
 	go s.proberLoop(ctx)
 	go s.digestLoop(ctx)
+	go s.dependencyHealthLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}

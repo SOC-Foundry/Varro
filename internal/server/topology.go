@@ -156,6 +156,19 @@ func (s *Server) correlateEdges(r *http.Request, orgID string, snap *model.Snaps
 				s.log.Info("topology edge discovered", "msg", msg)
 				s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventConnNewInternal, Message: msg}})
 			}
+			// Dependency drift: if the source's config was parsed (it has resolvable
+			// cross-host declared deps) but this new path isn't one of them, flag it —
+			// an undeclared/shadow dependency or possible lateral movement.
+			if undeclaredTarget(snap.DeclaredDeps, s.ips, dst) {
+				dmsg := "undeclared dependency: " + snap.Hostname + " (" + process + ") -> " +
+					dstName + " port " + itoa(port) + " — not in its configured dependencies"
+				if err := s.store.InsertServerEvent(r.Context(), orgID, snap.AgentID,
+					model.EventConnUndeclared, dmsg); err == nil {
+					s.log.Warn("dependency drift", "msg", dmsg)
+					s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventConnUndeclared, Message: dmsg}})
+					s.siemForward(orgID, snap.Hostname, model.EventConnUndeclared, "LOW", "T1021 Remote Services", dmsg)
+				}
+			}
 		}
 	}
 }
