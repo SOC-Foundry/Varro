@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/soc-foundry/varro/internal/model"
@@ -50,6 +51,23 @@ func TestParseSTIXIndicators(t *testing.T) {
 	}
 	if len(iocs) != len(want) {
 		t.Errorf("got %d IOCs, want %d: %+v", len(iocs), len(want), got)
+	}
+}
+
+func TestStripUserinfo(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pass@taxii.example/collections/1/objects/": "https://taxii.example/collections/1/objects/",
+		"https://taxii.example/feed.json":                        "https://taxii.example/feed.json",
+		"https://tokenuser@host/path?x=1":                        "https://host/path?x=1",
+		"not a url":                                              "not a url",
+	}
+	for in, want := range cases {
+		if got := stripUserinfo(in); got != want {
+			t.Errorf("stripUserinfo(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(stripUserinfo(in), "pass") || strings.Contains(stripUserinfo(in), "@") && strings.Contains(in, ":pass@") {
+			t.Errorf("credential survived stripUserinfo(%q) = %q", in, stripUserinfo(in))
+		}
 	}
 }
 

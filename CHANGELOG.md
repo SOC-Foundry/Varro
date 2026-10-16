@@ -7,6 +7,11 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.97.0] — 2026-10-15
+- Security review + test coverage of the v0.86–v0.97 surface (traces/service-graph, STIX/TAXII + IOCs, declared-dependency overlay, drift detection, blast-radius). A focused review found no exploitable issues: STIX feed fetches are SSRF-guarded (incl. redirects/DNS-rebinding via per-hop dialer vetting), credentials are stripped before any declared dependency, all new SQL is parameterized, IOC endpoints are org-admin gated, and new UI fields are escaped.
+- Hardening: STIX feed URLs can carry credentials for polling, but those are now stripped before the URL is stored as an indicator's `source` (defense-in-depth — creds no longer persist on IOC rows shown in the list).
+- Tests: added HTTP-handler tests for IOC create/list/delete, auth, STIX bundle ingest, and feed-URL validation, plus unit tests for the declared-source parsers, drift decision, impact/SPOF, and `stripUserinfo`.
+
 ## [v0.96.0] — 2026-10-15
 - Topology blast-radius & SPOF: each fleet host now shows how many other hosts transitively depend on it (its blast radius if it goes down), computed over the dependency graph (observed + declared edges, caller→callee, cycle-safe). Hosts a large share of the fleet depends on are flagged as **single points of failure** (SPOF badge + amber highlight) in the node inspector. Answers "if this dies, what breaks?" for IR and capacity planning.
 

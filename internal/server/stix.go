@@ -114,6 +114,18 @@ func parseSTIXIndicators(body []byte, source string, now int64) []model.IOC {
 	return out
 }
 
+// stripUserinfo removes any embedded credentials from a URL (the user[:pass]@
+// part) while keeping scheme/host/path/query, so a feed URL can be used as an IOC
+// source without persisting secrets. Falls back to the input on parse failure.
+func stripUserinfo(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
+}
+
 func normalizeDomain(d string) string {
 	d = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(d, ".")))
 	if d == "" || !strings.Contains(d, ".") || net.ParseIP(d) != nil {
@@ -170,7 +182,10 @@ func (s *Server) refreshSTIXFeed(ctx context.Context, f model.STIXFeed) {
 		s.store.UpdateSTIXFeedStatus(ctx, f.ID, now.Unix(), 0, "error: "+err.Error())
 		return
 	}
-	iocs := parseSTIXIndicators(body, f.URL, now.Unix())
+	// Use the feed URL (minus any embedded credentials) as the IOC source — the
+	// stored feed keeps credentials for polling, but they must not persist on each
+	// indicator row that's shown back in the IOC list.
+	iocs := parseSTIXIndicators(body, stripUserinfo(f.URL), now.Unix())
 	n, err := s.store.UpsertIOCs(ctx, f.OrgID, iocs)
 	if err != nil {
 		s.log.Error("stix feed upsert failed", "url", redactURL(f.URL), "error", err)
