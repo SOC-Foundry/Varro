@@ -635,10 +635,55 @@ func (s *Server) buildTopology(ctx context.Context, scope []string, minutes int,
 		addDeclaredOverlay(nodes, &edges, snaps, inScope, s.ips, eps)
 	}
 
+	computeImpact(nodes, edges)
+
 	if edges == nil {
 		edges = []model.TopoEdge{}
 	}
 	return nodes, edges, nil
+}
+
+// computeImpact sets each internal node's blast radius — the number of other fleet
+// hosts that transitively depend on it (reachable via dependency edges, caller→
+// callee) — and flags single points of failure. Both observed and declared
+// internal edges count as dependencies. Cycle-safe.
+func computeImpact(nodes []model.TopoNode, edges []model.TopoEdge) {
+	internal := map[string]bool{}
+	for i := range nodes {
+		if !nodes[i].External {
+			internal[nodes[i].ID] = true
+		}
+	}
+	// Reverse adjacency: callee -> its direct dependents (callers).
+	rev := map[string][]string{}
+	for _, e := range edges {
+		if !e.Internal || e.Src == e.Dst || !internal[e.Src] || !internal[e.Dst] {
+			continue
+		}
+		rev[e.Dst] = append(rev[e.Dst], e.Src)
+	}
+	threshold := len(internal) / 2
+	if threshold < 2 {
+		threshold = 2
+	}
+	for i := range nodes {
+		if nodes[i].External {
+			continue
+		}
+		seen := map[string]bool{}
+		stack := append([]string{}, rev[nodes[i].ID]...)
+		for len(stack) > 0 {
+			n := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if n == nodes[i].ID || seen[n] {
+				continue
+			}
+			seen[n] = true
+			stack = append(stack, rev[n]...)
+		}
+		nodes[i].ImpactCount = len(seen)
+		nodes[i].SPOF = len(seen) >= threshold
+	}
 }
 
 // addDeclaredOverlay augments the graph with configured dependencies from each

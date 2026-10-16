@@ -292,6 +292,11 @@ type TopoNode struct {
 	// ordering/requirements), shown in the node inspector. Populated only when the
 	// declared overlay is requested.
 	DeclaredDeps []DeclaredDep `json:"declared_deps,omitempty"`
+	// ImpactCount is how many other fleet hosts transitively depend on this one
+	// (its blast radius if it goes down). SPOF marks a host that a large share of
+	// the fleet depends on — a single point of failure.
+	ImpactCount int  `json:"impact_count,omitempty"`
+	SPOF        bool `json:"spof,omitempty"`
 }
 
 type EdgeProcess struct {

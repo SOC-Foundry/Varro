@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.96.0] — 2026-10-15
+- Topology blast-radius & SPOF: each fleet host now shows how many other hosts transitively depend on it (its blast radius if it goes down), computed over the dependency graph (observed + declared edges, caller→callee, cycle-safe). Hosts a large share of the fleet depends on are flagged as **single points of failure** (SPOF badge + amber highlight) in the node inspector. Answers "if this dies, what breaks?" for IR and capacity planning.
+
 ## [v0.95.0] — 2026-10-15
 - Dependency drift detection + alerts: the dependency graph now watches for two conditions. **Undeclared connection** — when a new fleet-internal connection is first seen from a host whose config was parsed (it has resolvable declared deps) but this path isn't one of them, Varro raises a `conn_undeclared` event (shadow dependency / possible lateral movement; LOW, informational). **Dependency down** — a leader-side check every 5 min raises a `dep_target_down` event (HIGH) when a *hard* declared dependency's target host is offline (availability risk), rate-limited to hourly per pair. Both flow through the normal event/notify/SIEM path; `dep_target_down` shows as a hot (red) event.
 
