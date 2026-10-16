@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.99.0] — 2026-10-16
+- Fleet health & staged agent rollout (Admin, instance-admin only). A new Fleet card shows agent-version distribution, online/offline, how many are behind their target, and per-agent rows (platform, version, target, status, exec sensor). **Staged rollout** replaces the manual pin dance: set a stable version plus an optional canary version and tick which hosts canary onto it — most agents get stable, ticked hosts get canary. The config lives in the shared DB so both collectors resolve the same target per agent (no flap), and `GET /api/v1/agent/config` now serves each agent its resolved version. When no rollout is configured it falls back to the server's env/flag pin (fully backward compatible). `GET /api/v1/fleet`, `GET|PUT /api/v1/fleet/rollout`.
+
 ## [v0.98.0] — 2026-10-16
 - Metric anomaly detection: alerting is no longer threshold-only. A leader-side scan (every 5 min) learns each host's own ~6h baseline (mean/stddev) per resource metric and raises a `metric_anomaly` event when the latest value is ≥3σ above that baseline **and** above a relevance floor (CPU 60%, memory 70%, disk 85%) — so it catches pressure that's unusual *for that host* without firing on idle jitter or steadily-busy hosts. Rate-limited hourly per host+metric; flows through the normal event/notify/SIEM path and shows as a hot event.
 

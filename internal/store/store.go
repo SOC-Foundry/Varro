@@ -444,6 +444,13 @@ CREATE TABLE IF NOT EXISTS stix_feeds (
 	last_status TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_stix_feeds_org ON stix_feeds(org_id);
+CREATE TABLE IF NOT EXISTS agent_rollout (
+	id             INTEGER PRIMARY KEY CHECK (id = 1),
+	stable_version TEXT NOT NULL DEFAULT '',
+	canary_version TEXT NOT NULL DEFAULT '',
+	canary_ids     TEXT NOT NULL DEFAULT '[]',
+	updated_at     INTEGER NOT NULL DEFAULT 0
+);
 `
 	if _, err := s.db.Exec(s.db.ddl(ddl)); err != nil {
 		return err

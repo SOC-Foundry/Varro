@@ -651,6 +651,22 @@
           <button id="createOrgBtn" class="abtn">Create</button>
         </div>
       </div>
+      <div class="card wide" id="fleetCard" style="display:none"><h3>Fleet health &amp; agent rollout <span class="now" id="fleetNow"></span></h3>
+        <div id="fleetSummary" style="display:flex; gap:18px; flex-wrap:wrap; font-size:13px; margin-bottom:8px"></div>
+        <div id="fleetVersions" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px">
+          <span style="font-size:12px; color:var(--dim)">staged rollout:</span>
+          <input id="rolloutStable" placeholder="stable version e.g. v0.99.0" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; font-family:var(--mono); width:190px">
+          <input id="rolloutCanary" placeholder="canary version (optional)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; font-family:var(--mono); width:190px">
+          <button class="abtn" id="rolloutSaveBtn" style="color:var(--accent)">Save rollout</button>
+          <span id="rolloutMsg" style="font-size:12px"></span>
+        </div>
+        <p style="color:var(--dim); font-size:11.5px; margin:0 0 8px">Most agents get the stable version; ticked hosts get the canary version. Leave stable empty to fall back to the server's pin. Agents converge on their next config poll.</p>
+        <div style="overflow-x:auto; max-height:340px; overflow-y:auto"><table>
+          <thead><tr><th>Host</th><th>Platform</th><th>Version</th><th>Target</th><th>Status</th><th>Sensor</th><th style="width:50px; text-align:center">Canary</th></tr></thead>
+          <tbody id="fleetRows"></tbody>
+        </table></div>
+      </div>
       <div class="card wide"><h3>Organization</h3>
         <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center">
           <select id="adminOrgSelect" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 10px; min-width:240px"></select>
@@ -1337,6 +1353,8 @@ function setupAdmin(me) {
 
   $("adminbar").style.display = "block";
   $("createOrgCard").style.display = isInstanceAdmin ? "block" : "none";
+  $("fleetCard").style.display = isInstanceAdmin ? "block" : "none";
+  if (isInstanceAdmin) { $("rolloutSaveBtn").onclick = saveRollout; loadFleet(); }
   $("adminLink").onclick = e => { e.preventDefault(); closeSidebar(); showAdmin(true); };
   $("adminBack").onclick = e => { e.preventDefault(); showAdmin(false); };
 
@@ -1770,6 +1788,49 @@ async function importStixBundle() {
     $("stixMsg").textContent = `imported ${r.ingested} indicators`; $("stixPaste").value = "";
     loadIOCs(org);
   } catch (e) { $("stixMsg").style.color = "var(--red)"; $("stixMsg").textContent = e.message; }
+}
+
+/* ---- fleet health & agent rollout (instance admin) ---- */
+async function loadFleet() {
+  try {
+    const f = await getJSON("/api/v1/fleet");
+    const total = f.total || 0, online = f.online || 0, behind = f.behind_target || 0;
+    $("fleetSummary").innerHTML =
+      `<span><b style="color:var(--text)">${total}</b> agents</span>` +
+      `<span><b style="color:${online === total ? "var(--green)" : "var(--amber)"}">${online}</b> online</span>` +
+      `<span style="color:${behind ? "var(--amber)" : "var(--dim)"}">${behind} behind target</span>`;
+    $("fleetVersions").innerHTML = Object.entries(f.versions || {}).sort((a, b) => b[1] - a[1])
+      .map(([v, c]) => `<span class="chip type">${esc(v)} · ${c}</span>`).join("");
+    const ro = f.rollout || {};
+    if (document.activeElement !== $("rolloutStable")) $("rolloutStable").value = ro.stable_version || "";
+    if (document.activeElement !== $("rolloutCanary")) $("rolloutCanary").value = ro.canary_version || "";
+    const rows = f.agents || [];
+    $("fleetRows").innerHTML = rows.map(a => {
+      const st = a.online
+        ? (a.up_to_date ? `<span style="color:var(--green)">● up to date</span>` : `<span style="color:var(--amber)">● updating</span>`)
+        : `<span style="color:var(--red)">● offline</span>`;
+      return `<tr>
+        <td class="host">${esc(a.hostname || a.id)}</td>
+        <td style="font-size:12px; color:var(--dim)">${esc(a.platform || "")}</td>
+        <td style="font-family:var(--mono); font-size:12px">${esc(a.agent_version || "—")}</td>
+        <td style="font-family:var(--mono); font-size:12px; color:var(--dim)">${esc(a.target || "—")}</td>
+        <td style="font-size:12px">${st}</td>
+        <td style="font-size:11.5px; color:var(--dim)">${esc(a.sensor || "")}</td>
+        <td style="text-align:center"><input type="checkbox" class="canary-cb" data-id="${esc(a.id)}"${a.canary ? " checked" : ""}></td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="7" style="color:var(--dim)">no agents enrolled</td></tr>`;
+  } catch (e) { $("fleetRows").innerHTML = `<tr><td colspan="7" style="color:var(--red)">${esc(e.message)}</td></tr>`; }
+}
+async function saveRollout() {
+  $("rolloutMsg").textContent = ""; $("rolloutMsg").style.color = "var(--dim)";
+  const canary_ids = [...document.querySelectorAll(".canary-cb")].filter(c => c.checked).map(c => c.getAttribute("data-id"));
+  const body = { stable_version: $("rolloutStable").value.trim(), canary_version: $("rolloutCanary").value.trim(), canary_ids };
+  try {
+    const r = await fetch("/api/v1/fleet/rollout", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
+    $("rolloutMsg").style.color = "var(--green)"; $("rolloutMsg").textContent = "saved — agents converge on next poll";
+    loadFleet();
+  } catch (e) { $("rolloutMsg").style.color = "var(--red)"; $("rolloutMsg").textContent = e.message; }
 }
 
 /* ---- scheduled report digest (admin) ---- */

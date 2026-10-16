@@ -664,6 +664,41 @@ type STIXFeed struct {
 	LastStatus string `json:"last_status,omitempty"`
 }
 
+// AgentRollout is the staged agent-version rollout config (a singleton): most
+// agents get StableVersion; agents whose ID is in CanaryIDs get CanaryVersion.
+// When StableVersion is empty the server falls back to its configured desired
+// version (backward compatible with env/flag pinning).
+type AgentRollout struct {
+	StableVersion string   `json:"stable_version"`
+	CanaryVersion string   `json:"canary_version"`
+	CanaryIDs     []string `json:"canary_ids"`
+	UpdatedAt     int64    `json:"updated_at,omitempty"`
+}
+
+// FleetAgent is one agent's row in the fleet-health view.
+type FleetAgent struct {
+	ID           string    `json:"id"`
+	Hostname     string    `json:"hostname"`
+	Platform     string    `json:"platform"`
+	AgentVersion string    `json:"agent_version"`
+	Target       string    `json:"target"`           // desired version for this agent (stable/canary)
+	Canary       bool      `json:"canary,omitempty"` // in the canary cohort
+	UpToDate     bool      `json:"up_to_date"`
+	Online       bool      `json:"online"`
+	Sensor       string    `json:"sensor,omitempty"` // exec sensor: eBPF | ETW | polling
+	LastSeen     time.Time `json:"last_seen"`
+}
+
+// FleetSummary aggregates agent health across the fleet for the ops view.
+type FleetSummary struct {
+	Total        int            `json:"total"`
+	Online       int            `json:"online"`
+	BehindTarget int            `json:"behind_target"`
+	Versions     map[string]int `json:"versions"` // agent_version -> count
+	Rollout      AgentRollout   `json:"rollout"`
+	Agents       []FleetAgent   `json:"agents"`
+}
+
 // SavedView is a named, persisted metric-explorer configuration (its spec is an
 // opaque JSON blob the dashboard interprets: metric, endpoints, time range).
 type SavedView struct {

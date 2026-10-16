@@ -97,6 +97,10 @@ type Server struct {
 
 	driftMu   sync.Mutex           // guards driftSeen (dependency-drift alert dedup)
 	driftSeen map[string]time.Time // "key" -> last time we alerted, rate-limited
+
+	rolloutMu    sync.Mutex         // guards the cached agent-rollout config
+	rolloutCache model.AgentRollout // short-TTL cache so each agent config poll isn't a DB hit
+	rolloutAt    time.Time
 }
 
 // driftShouldAlert rate-limits a drift/dependency alert key to at most once per
@@ -228,6 +232,9 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs/{id}/silences", s.handleSilencesList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/silences", s.handleSilenceCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/silences/{silID}", s.handleSilenceDelete)
+	mux.HandleFunc("GET /api/v1/fleet", s.handleFleet)
+	mux.HandleFunc("GET /api/v1/fleet/rollout", s.handleRolloutGet)
+	mux.HandleFunc("PUT /api/v1/fleet/rollout", s.handleRolloutSet)
 	mux.HandleFunc("GET /api/v1/orgs/{id}/iocs", s.handleIOCList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/iocs", s.handleIOCCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/iocs", s.handleIOCDelete)
@@ -515,7 +522,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	_, orgID, ok := s.agentAuthorized(r)
+	agentID, orgID, ok := s.agentAuthorized(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -523,7 +530,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"interval_seconds": int(s.cfg.AgentInterval / time.Second),
 	}
-	if v := s.cfg.AgentDesiredVersion; v != "" && v != "dev" {
+	if v := s.desiredVersionFor(r.Context(), agentID); v != "" && v != "dev" {
 		resp["desired_version"] = v
 		resp["repo"] = s.cfg.ReleaseRepo
 	}
