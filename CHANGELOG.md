@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.1.1] — 2026-10-16
+- Deep-linkable views: the dashboard now reflects the current view in the URL (`#traces`, `#topology`, `#admin`, `#endpoint/<id>`, …), so views and selected endpoints are shareable and bookmarkable, and the browser back/forward buttons work. Opening a link goes straight to that view; nav tabs and the "← back to endpoints" links drive the URL. (Second v1.1 slice item; UI-only.)
+
 ## [v1.1.0] — 2026-10-16
 - SLOs + error budgets (first v1.1 feature): define a per-service success-rate objective (target + window) and Varro computes error-budget consumption from live trace RED data — ok / warning (≥75% consumed) / breached (budget exhausted), shown in the Traces view with a budget bar. A leader-side check raises an `slo_breach` event (HIGH) when a service exhausts its budget, rate-limited hourly. `GET /api/v1/slos` (read-scoped statuses), `POST /api/v1/orgs/{id}/slos` + `DELETE …/slos/{service}` (org admin).
 

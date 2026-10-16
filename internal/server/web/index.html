@@ -1071,7 +1071,12 @@ async function refreshEndpoints() {
     div.className = "ep" + (ep.id === selected ? " active" : "");
     div.innerHTML = `<div class="name"><span class="dot ${ep.online ? "on" : ""}"></span>${esc(ep.hostname)}</div>
       <div class="sub">cpu ${ep.cpu_percent.toFixed(0)}% · mem ${ep.mem_percent.toFixed(0)}% · ${esc(ep.platform)}</div>`;
-    div.onclick = () => { selected = ep.id; closeSidebar(); refreshDetail(); refreshEndpoints(); };
+    div.onclick = () => {
+      closeSidebar();
+      const key = "endpoint/" + encodeURIComponent(ep.id);
+      if (location.hash.replace(/^#/, "") === key) { selected = ep.id; refreshDetail(); refreshEndpoints(); }
+      else location.hash = key; // deep-linkable; hashchange → applyRoute selects + shows
+    };
     box.appendChild(div);
   }
   if (!selected && eps.length) { selected = eps[0].id; refreshDetail(); }
@@ -4222,7 +4227,57 @@ $("fBlast").addEventListener("change", () => {
   renderTopoInfo();
 });
 
-bootstrap();
+/* ---- deep-linkable views (URL hash routing) ---- */
+const ROUTES = [
+  { link: "homeLink", key: "", show: () => goHome() },
+  { link: "topoLink", key: "topology", show: () => showTopo(true) },
+  { link: "flowsLink", key: "flows", show: () => showFlows(true) },
+  { link: "logsLink", key: "logs", show: () => showLogs(true) },
+  { link: "huntLink", key: "hunt", show: () => showHunt(true) },
+  { link: "incidentsLink", key: "incidents", show: () => showIncidents(true) },
+  { link: "reportLink", key: "report", show: () => showReport(true) },
+  { link: "priorityLink", key: "priority", show: () => showPriority(true) },
+  { link: "metricsLink", key: "metrics", show: () => showMetrics(true) },
+  { link: "dashboardsLink", key: "dashboards", show: () => showDashboards(true) },
+  { link: "otlpLink", key: "custom-metrics", show: () => showOtlp(true) },
+  { link: "tracesLink", key: "traces", show: () => showTraces(true) },
+  { link: "syntheticLink", key: "uptime", show: () => showSynthetic(true) },
+  { link: "downloadLink", key: "download", show: () => showDownload(true) },
+  { link: "adminLink", key: "admin", show: () => showAdmin(true) },
+];
+let _routing = false;
+function applyRoute() {
+  if (!window._me) return; // app not loaded (login screen) — ignore the hash
+  _routing = true;
+  try {
+    const h = (location.hash || "").replace(/^#/, "");
+    if (h.startsWith("endpoint/")) {
+      goHome();
+      selected = decodeURIComponent(h.slice("endpoint/".length));
+      refreshDetail(); refreshEndpoints(); setActiveNav("homeLink");
+      return;
+    }
+    (ROUTES.find(r => r.key === h) || ROUTES[0]).show();
+  } finally { _routing = false; }
+}
+// nav links drive the URL; the URL drives the view (so views are shareable/bookmarkable)
+for (const r of ROUTES) {
+  const el = $(r.link);
+  if (!el) continue;
+  el.onclick = e => {
+    e.preventDefault(); closeSidebar();
+    if (location.hash.replace(/^#/, "") === r.key) applyRoute(); // same hash → no hashchange, route now
+    else location.hash = r.key;
+  };
+}
+// every "← back to endpoints" link returns home (goHome tears down any open view)
+document.querySelectorAll('[id$="Back"]').forEach(el => {
+  el.onclick = e => { e.preventDefault(); if (!location.hash.replace(/^#/, "")) applyRoute(); else location.hash = ""; };
+});
+window.addEventListener("hashchange", () => { if (!_routing) applyRoute(); });
+function initialRoute() { if (location.hash.replace(/^#/, "")) applyRoute(); }
+
+bootstrap().then(initialRoute);
 window.addEventListener("resize", refreshDetail);
 </script>
 </body>
