@@ -7,6 +7,10 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.0.0] — 2026-10-16
+- **1.0 milestone.** Varro is stable and running in production: one Go binary spanning endpoint telemetry, EDR-style security sensing, application observability (OTLP metrics/traces/logs, service dependency map, topology + declared-dependency overlay, drift detection, blast-radius/SPOF), and SOC workflows (threat intel + STIX/TAXII, Sigma + custom detections, hunting, incidents, SOAR auto-response) — behind multi-tenant orgs with SSO, an HA Postgres cluster (pg_auto_failover), and signed auto-upgrading agents with staged canary rollout.
+- No new features in this release — a **consolidation pass**: full regression (build/vet/`go test` + the race detector clean across all packages, all five target platforms cross-compile, CI green) and a documentation refresh (README capabilities overview, accurate anomaly-detection description). The feature-by-feature path to 1.0 is the v0.x history below.
+
 ## [v0.99.0] — 2026-10-16
 - Fleet health & staged agent rollout (Admin, instance-admin only). A new Fleet card shows agent-version distribution, online/offline, how many are behind their target, and per-agent rows (platform, version, target, status, exec sensor). **Staged rollout** replaces the manual pin dance: set a stable version plus an optional canary version and tick which hosts canary onto it — most agents get stable, ticked hosts get canary. The config lives in the shared DB so both collectors resolve the same target per agent (no flap), and `GET /api/v1/agent/config` now serves each agent its resolved version. When no rollout is configured it falls back to the server's env/flag pin (fully backward compatible). `GET /api/v1/fleet`, `GET|PUT /api/v1/fleet/rollout`.
 

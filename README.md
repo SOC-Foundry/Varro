@@ -1,14 +1,38 @@
 # Varro
 
-Endpoint telemetry with teeth: a lightweight Go agent that scans hardware, OS,
-and security-relevant state (CPU, memory, disks, network, processes, listening
-ports, sessions, persistence locations) on each endpoint and ships it to a
-central collector with alerting, anomaly detection, a live web dashboard, REST
-API, Prometheus exporter, and CLI.
+Varro is a single Go binary that is both an endpoint **agent** and a central
+**collector** — a lightweight, self-hostable platform that unifies endpoint
+telemetry, EDR-style security sensing, application observability, and SOC
+workflows behind one live dashboard, REST API, Prometheus exporter, and CLI.
+Pure Go, no cgo: one static binary (`varro`) with subcommands, SQLite out of the
+box or Postgres (with HA) for scale.
 
-Everything is a single static binary — `varro` — with subcommands.
+**Current release:** [v1.0.0](https://github.com/SOC-Foundry/Varro/releases/tag/v1.0.0) · [changelog](CHANGELOG.md)
 
-**Current release:** [v0.99.0](https://github.com/SOC-Foundry/Varro/releases/tag/v0.99.0) · [changelog](CHANGELOG.md)
+## Capabilities
+
+- **Endpoint telemetry** — per-core CPU/load, memory/swap, per-filesystem disk,
+  per-NIC network rates, top processes, listening ports, sessions, package
+  inventory, and hardware; live dashboard, history (with long-range rollups),
+  and a Prometheus scrape target.
+- **EDR & security** — short-lived process-exec capture (eBPF on Linux, ETW on
+  Windows, polling elsewhere), file-integrity monitoring, persistence / identity
+  / SUID change events, threat-intel matching for IPs/domains/hashes with
+  **STIX/TAXII + custom IOC** ingest, **Sigma + custom detection rules**, a
+  threat-hunting console, incident management, and SOAR-style auto-response
+  (host isolation).
+- **Observability** — OTLP **metrics, traces, and logs** ingest; RED service
+  health and a trace-derived **service dependency map**; a passive **topology**
+  graph with a **declared-dependency overlay** (systemd / Postgres-HA /
+  connection strings), dependency **drift detection**, and **blast-radius / SPOF**
+  analysis.
+- **Monitoring & alerting** — threshold rules with sustain windows, per-host
+  **metric anomaly detection** (baseline-deviation), synthetic/uptime checks,
+  alert routing + maintenance silences, notifications (webhook / Slack / email),
+  scheduled report digests, and a compliance/posture report.
+- **Platform & ops** — multi-tenant orgs with Google SSO + RBAC, custom
+  dashboards, SIEM export, **Postgres HA** (pg_auto_failover), signed
+  auto-upgrading agents with **staged (canary) rollout**, and a fleet-health view.
 
 ## Architecture
 
@@ -43,8 +67,9 @@ endpoint C ──┘  (per-agent tokens,             │
   backups.
 - **Alert engine**: threshold rules with sustain windows (defaults: CPU>90%
   5m, mem>95% 5m, swap>80% 5m, disk>85%, offline 90s — or your own
-  `--rules rules.json`), plus **z-score anomaly detection** against each
-  endpoint's own 7-day baseline (CPU and network rates; fire >3σ, resolve <2σ).
+  `--rules rules.json`), plus **per-host metric anomaly detection** that flags a
+  value deviating ≥3σ above the host's own recent baseline (CPU/memory/disk,
+  above a relevance floor so idle hosts stay quiet).
 - Notifications on fire/resolve via generic **webhook**, **Slack** webhook,
   and **SMTP email**; selected security events (default: autostart changes,
   new NICs, new listeners) are forwarded as they arrive.
