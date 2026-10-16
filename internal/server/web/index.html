@@ -1151,7 +1151,7 @@ function renderVulns(v) {
 }
 
 // Event types worth drawing the eye to.
-const hotEvents = new Set(["detection", "threat_match", "malware_match", "suid_change", "identity_change", "vuln_new", "auth_failures", "dep_target_down"]);
+const hotEvents = new Set(["detection", "threat_match", "malware_match", "suid_change", "identity_change", "vuln_new", "auth_failures", "dep_target_down", "metric_anomaly"]);
 
 function renderEvents(events) {
   $("events").innerHTML = events.map(ev => {

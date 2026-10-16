@@ -265,6 +265,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.proberLoop(ctx)
 	go s.digestLoop(ctx)
 	go s.dependencyHealthLoop(ctx)
+	go s.anomalyLoop(ctx)
 	if s.cfg.VulnScan {
 		go s.vulnScanLoop(ctx)
 	}

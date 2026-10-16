@@ -205,6 +205,7 @@ const (
 	EventConnNewInternal   = "conn_new_internal"   // first-seen fleet-internal communication path
 	EventConnUndeclared    = "conn_undeclared"     // observed internal connection not in the source's declared deps (drift)
 	EventDepTargetDown     = "dep_target_down"     // a hard declared dependency's target host is offline
+	EventMetricAnomaly     = "metric_anomaly"      // a metric deviated sharply from the host's own baseline
 	EventVulnNew           = "vuln_new"            // package newly matched to a known vulnerability
 	EventThreatMatch       = "threat_match"        // connection to a known-malicious indicator
 	EventMalwareMatch      = "malware_match"       // process binary matched a known-malware hash

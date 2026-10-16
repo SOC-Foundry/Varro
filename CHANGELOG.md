@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v0.98.0] — 2026-10-16
+- Metric anomaly detection: alerting is no longer threshold-only. A leader-side scan (every 5 min) learns each host's own ~6h baseline (mean/stddev) per resource metric and raises a `metric_anomaly` event when the latest value is ≥3σ above that baseline **and** above a relevance floor (CPU 60%, memory 70%, disk 85%) — so it catches pressure that's unusual *for that host* without firing on idle jitter or steadily-busy hosts. Rate-limited hourly per host+metric; flows through the normal event/notify/SIEM path and shows as a hot event.
+
 ## [v0.97.0] — 2026-10-15
 - Security review + test coverage of the v0.86–v0.97 surface (traces/service-graph, STIX/TAXII + IOCs, declared-dependency overlay, drift detection, blast-radius). A focused review found no exploitable issues: STIX feed fetches are SSRF-guarded (incl. redirects/DNS-rebinding via per-hop dialer vetting), credentials are stripped before any declared dependency, all new SQL is parameterized, IOC endpoints are org-admin gated, and new UI fields are escaped.
 - Hardening: STIX feed URLs can carry credentials for polling, but those are now stripped before the URL is stored as an indicator's `source` (defense-in-depth — creds no longer persist on IOC rows shown in the list).
