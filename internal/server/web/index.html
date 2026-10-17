@@ -196,14 +196,20 @@
       <h2 id="hostname"></h2>
       <span class="meta" id="hostmeta"></span>
     </header>
-    <div id="respActions" style="display:none; margin:6px 0 2px; gap:8px; align-items:center">
+    <div id="respActions" style="display:none; margin:6px 0 2px; gap:8px; align-items:center; flex-wrap:wrap">
       <span style="color:var(--dim); font-size:12px">Response:</span>
       <button class="abtn danger" id="isolateBtn" onclick="issueAction('isolate')">Isolate host</button>
       <button class="abtn danger" id="unisolateBtn" onclick="issueAction('unisolate')">Lift isolation</button>
+      <button class="abtn danger" onclick="issueActionPrompt('block_ip','IP address to block at the host firewall')">Block IP…</button>
+      <button class="abtn danger" onclick="issueActionPrompt('quarantine_file','absolute path of the file to quarantine')">Quarantine file…</button>
+      <span style="color:var(--dim); font-size:11px">· actions require approval</span>
     </div>
     <div id="ranges"></div>
     <div class="grid">
       <div class="card wide" id="alertsCard" style="display:none"><h3>Alerts</h3><div id="alerts"></div></div>
+      <div class="card wide" id="actionsCard" style="display:none"><h3>Response actions <span style="color:var(--dim); font-weight:400; font-size:12px">· propose → approve → execute</span></h3>
+        <div style="overflow-x:auto"><table><thead><tr><th>Action</th><th>Status</th><th>Proposed by</th><th>Approved by</th><th></th></tr></thead><tbody id="actionsRows"></tbody></table></div>
+      </div>
       <div class="card"><h3>CPU <span class="now" id="cpuNow"></span></h3><canvas id="cpuChart"></canvas></div>
       <div class="card"><h3>Memory <span class="now" id="memNow"></span></h3><canvas id="memChart"></canvas></div>
       <div class="card"><h3>Network <span class="now" id="netNow"></span></h3><canvas id="netChart"></canvas></div>
@@ -1133,6 +1139,7 @@ async function refreshDetail() {
     renderEvents(events);
     renderAlerts(alerts);
     renderVulns(vulns);
+    loadActions(selected);
   } catch (e) { console.error(e); }
 }
 
@@ -1344,17 +1351,58 @@ function updateRespondCapability(me) {
   canRespond = !!org && org.role === "admin";
 }
 
+const ACTION_LABEL = { kill_process: "kill PID", isolate: "ISOLATE this host from the network", unisolate: "lift isolation", block_ip: "block IP", unblock_ip: "unblock IP", quarantine_file: "quarantine file" };
 async function issueAction(type, arg) {
   if (!selected) return;
-  const label = type === "kill_process" ? `kill PID ${arg}` :
-                type === "isolate" ? "ISOLATE this host from the network" : "lift isolation";
-  if (!confirm(`Response action: ${label}?\n\nThis acts on the live endpoint.`)) return;
+  const base = ACTION_LABEL[type] || type;
+  const label = (arg !== undefined && arg !== "" && type !== "isolate" && type !== "unisolate") ? `${base} ${arg}` : base;
+  if (!confirm(`Propose response action: ${label}?\n\nIt is queued for approval and only runs once an admin approves it.`)) return;
   try {
-    await postJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/actions`), {type, arg: String(arg ?? "")});
-    alert("Action queued — the agent runs it within one sampling interval. Watch the Events feed for the result.");
+    await postJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(selected)}/actions`), { type, arg: String(arg ?? "") });
+    loadActions(selected);
   } catch (e) { oops(e); }
 }
+function issueActionPrompt(type, promptText) {
+  const arg = prompt(promptText);
+  if (arg === null || arg.trim() === "") return;
+  issueAction(type, arg.trim());
+}
 const killProc = (pid, name) => issueAction("kill_process", pid);
+
+async function loadActions(id) {
+  if (!id) return;
+  try {
+    const acts = await getJSON(orgQ(`/api/v1/endpoints/${encodeURIComponent(id)}/actions`));
+    const tb = $("actionsRows");
+    if (!acts.length) { $("actionsCard").style.display = "none"; return; }
+    $("actionsCard").style.display = "block";
+    const col = { proposed: "var(--amber)", pending: "var(--accent)", sent: "var(--accent)", done: "var(--green)", failed: "var(--red)", rejected: "var(--dim)" };
+    const admin = canAdminCurrentOrg();
+    tb.innerHTML = acts.map(a => {
+      const what = a.type + (a.arg ? " " + a.arg : "");
+      const c = col[a.status] || "var(--dim)";
+      const act = (a.status === "proposed" && admin)
+        ? `<button class="abtn" data-approve="${a.id}" style="color:var(--green);font-size:11px;padding:2px 7px">Approve</button> <button class="abtn danger" data-reject="${a.id}" style="font-size:11px;padding:2px 7px">Reject</button>`
+        : "";
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:12px">${esc(what)}</td>
+        <td><span style="color:${c};font-size:12px">● ${esc(a.status)}</span></td>
+        <td style="font-size:12px;color:var(--dim)">${esc(a.issued_by || "")}</td>
+        <td style="font-size:12px;color:var(--dim)">${esc(a.approved_by || "")}</td>
+        <td style="white-space:nowrap">${act}</td></tr>`;
+    }).join("");
+    tb.querySelectorAll("[data-approve]").forEach(b => b.onclick = () => decideAction(b.getAttribute("data-approve"), true, id));
+    tb.querySelectorAll("[data-reject]").forEach(b => b.onclick = () => decideAction(b.getAttribute("data-reject"), false, id));
+  } catch (e) { /* endpoint may be out of scope; leave card as-is */ }
+}
+async function decideAction(actionID, approve, epID) {
+  const verb = approve ? "approve" : "reject";
+  if (approve && !confirm("Approve and execute this response action on the live endpoint?")) return;
+  try {
+    await postJSON(`/api/v1/actions/${encodeURIComponent(actionID)}/${verb}`, {});
+    loadActions(epID);
+  } catch (e) { oops(e); }
+}
 
 /* ---- admin panel ---- */
 let adminOrgs = [], adminMode = false;

@@ -74,3 +74,13 @@ func unisolateHost(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Per-IP firewall blocking is Linux-first; on macOS it's a documented follow-up
+// (pf anchor management) rather than silently doing nothing.
+func blockIP(ctx context.Context, ip string) error {
+	return fmt.Errorf("block_ip is not yet implemented on macOS")
+}
+
+func unblockIP(ctx context.Context, ip string) error {
+	return fmt.Errorf("unblock_ip is not yet implemented on macOS")
+}

@@ -143,6 +143,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/actions/{id}/ack", s.handleActionAck)
 	mux.HandleFunc("POST /api/v1/endpoints/{id}/actions", s.handleIssueAction)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/actions", s.handleListActions)
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve", s.handleApproveAction)
+	mux.HandleFunc("POST /api/v1/actions/{id}/reject", s.handleRejectAction)
 	mux.HandleFunc("GET /api/v1/endpoints", s.handleEndpoints)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/latest", s.handleLatest)
 	mux.HandleFunc("GET /api/v1/endpoints/{id}/history", s.handleHistory)

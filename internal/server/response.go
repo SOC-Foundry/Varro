@@ -40,7 +40,9 @@ func (s *Server) autoIsolate(ctx context.Context, orgID string, snap *model.Snap
 	if last, _ := s.store.LatestContainment(ctx, snap.AgentID); last == model.ActionIsolate {
 		return // already contained
 	}
-	if _, err := s.store.EnqueueAction(ctx, snap.AgentID, model.ActionIsolate, "", "auto:"+pb.Name); err != nil {
+	// Auto-response is policy-approved by the playbook itself, so it enqueues as
+	// pending (executes immediately) — it does not wait on manual approval.
+	if _, err := s.store.EnqueueAction(ctx, snap.AgentID, model.ActionIsolate, "", "auto:"+pb.Name, model.ActionPending); err != nil {
 		s.log.Error("auto-isolate enqueue", "endpoint", snap.Hostname, "error", err)
 		return
 	}

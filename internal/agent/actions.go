@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
 
@@ -52,11 +55,58 @@ func (a *Agent) execAction(ctx context.Context, act model.Action) (bool, string)
 		}
 		return true, "isolation lifted"
 
+	case model.ActionBlockIP:
+		if net.ParseIP(act.Arg) == nil {
+			return false, "invalid IP"
+		}
+		if err := blockIP(ctx, act.Arg); err != nil {
+			return false, "block failed: " + err.Error()
+		}
+		return true, "blocked " + act.Arg + " at host firewall"
+
+	case model.ActionUnblockIP:
+		if net.ParseIP(act.Arg) == nil {
+			return false, "invalid IP"
+		}
+		if err := unblockIP(ctx, act.Arg); err != nil {
+			return false, "unblock failed: " + err.Error()
+		}
+		return true, "unblocked " + act.Arg
+
+	case model.ActionQuarantineFile:
+		dest, err := quarantineFile(act.Arg)
+		if err != nil {
+			return false, "quarantine failed: " + err.Error()
+		}
+		return true, "quarantined to " + dest + " (perms stripped)"
+
 	default:
 		// Defense in depth: the server validates too, but the agent is the
 		// final authority on what it will run.
 		return false, "unsupported action type: " + act.Type
 	}
+}
+
+// quarantineFile neutralizes a file in place: renames it alongside the original
+// (same filesystem, so the rename always works) with a .varroquarantine suffix and
+// strips all permissions. It never executes anything and refuses directories.
+func quarantineFile(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("refusing to quarantine a directory")
+	}
+	dest := fmt.Sprintf("%s.varroquarantine.%d", path, time.Now().Unix())
+	if err := os.Rename(path, dest); err != nil {
+		return "", err
+	}
+	_ = os.Chmod(dest, 0) // best-effort; no-op on some platforms
+	return dest, nil
 }
 
 // fetchActions claims this agent's pending actions from the collector.

@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.3.0] — 2026-10-16
+- Response actions + approval workflow. New response actions beyond host isolation: **kill-process** (already present), **block-IP** at the host firewall (Linux iptables/ip6tables + Windows netsh; Linux/Windows-first), and **quarantine-file** (renames the file in place and strips its permissions; cross-platform). Every **manually-issued** action now follows a **propose → approve → execute** workflow: it's queued as `proposed` and only becomes runnable once an org admin approves it (reject cancels it); self-approval is allowed for solo operators but recorded as such, and every step is audited + shown in the endpoint's event feed. Auto-response (SOAR playbooks) still executes immediately — it's policy-approved by the playbook. UI: a "Response actions" panel on each endpoint with approve/reject controls and status. `POST /api/v1/actions/{id}/approve|reject` (org admin).
+
 ## [v1.2.0] — 2026-10-16
 - MITRE ATT&CK coverage map: a new Admin card shows which ATT&CK techniques your currently-enabled detections cover — built-in detections (respecting per-org enable/disable), custom rules, and imported Sigma rules — grouped by tactic, with a covered/gap heatmap and an overall coverage %. Technique IDs are matched at the technique level (sub-techniques roll up to their parent); rules covering each technique show on hover. Coverage is measured against a curated, endpoint-relevant subset of the ATT&CK matrix (not the full ~600-technique matrix), and anything a rule covers outside that subset is still surfaced under "Other". `GET /api/v1/attack` (read-scoped).
 

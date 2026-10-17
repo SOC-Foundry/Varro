@@ -223,26 +223,34 @@ const (
 // nothing outside it, and in particular never runs an operator-supplied
 // command string.
 const (
-	ActionKillProcess = "kill_process" // Arg = PID
-	ActionIsolate     = "isolate"      // network containment (keeps agent->collector)
-	ActionUnisolate   = "unisolate"    // lift containment
+	ActionKillProcess    = "kill_process"    // Arg = PID
+	ActionIsolate        = "isolate"         // network containment (keeps agent->collector)
+	ActionUnisolate      = "unisolate"       // lift containment
+	ActionBlockIP        = "block_ip"        // Arg = IP; drop traffic to/from it at the host firewall
+	ActionUnblockIP      = "unblock_ip"      // Arg = IP; remove the block
+	ActionQuarantineFile = "quarantine_file" // Arg = path; move the file to quarantine and strip perms
 )
 
 // ValidActionType reports whether t is an allowlisted action.
 func ValidActionType(t string) bool {
 	switch t {
-	case ActionKillProcess, ActionIsolate, ActionUnisolate:
+	case ActionKillProcess, ActionIsolate, ActionUnisolate,
+		ActionBlockIP, ActionUnblockIP, ActionQuarantineFile:
 		return true
 	}
 	return false
 }
 
-// Action statuses.
+// Action statuses. Manually-issued actions start as "proposed" and need approval
+// before they become "pending" (claimable by the agent); auto-response enqueues
+// "pending" directly.
 const (
-	ActionPending = "pending"
-	ActionSent    = "sent"
-	ActionDone    = "done"
-	ActionFailed  = "failed"
+	ActionProposed = "proposed"
+	ActionPending  = "pending"
+	ActionSent     = "sent"
+	ActionDone     = "done"
+	ActionFailed   = "failed"
+	ActionRejected = "rejected"
 )
 
 // Action is an operator-issued response command for one endpoint.
@@ -254,6 +262,7 @@ type Action struct {
 	Status     string     `json:"status"`
 	Result     string     `json:"result,omitempty"`
 	IssuedBy   string     `json:"issued_by"`
+	ApprovedBy string     `json:"approved_by,omitempty"`
 	IssuedAt   time.Time  `json:"issued_at"`
 	DoneAt     *time.Time `json:"done_at,omitempty"`
 }

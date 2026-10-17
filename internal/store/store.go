@@ -465,6 +465,7 @@ CREATE TABLE IF NOT EXISTS agent_rollout (
 	// Additive column migrations for databases created before v0.2/v0.3; the
 	// "duplicate column" error on re-run is expected and ignored.
 	for _, stmt := range []string{
+		`ALTER TABLE actions ADD COLUMN approved_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE endpoints ADD COLUMN agent_version TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE samples ADD COLUMN swap_pct REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE endpoints ADD COLUMN org_id TEXT NOT NULL DEFAULT 'default'`,

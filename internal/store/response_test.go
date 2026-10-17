@@ -25,11 +25,11 @@ func TestPlaybooksCRUDAndContainment(t *testing.T) {
 	if c, _ := s.LatestContainment(ctx, "host-a"); c != "" {
 		t.Errorf("fresh host containment = %q, want empty", c)
 	}
-	s.EnqueueAction(ctx, "host-a", model.ActionIsolate, "", "auto:isolate-crit")
+	s.EnqueueAction(ctx, "host-a", model.ActionIsolate, "", "auto:isolate-crit", model.ActionPending)
 	if c, _ := s.LatestContainment(ctx, "host-a"); c != model.ActionIsolate {
 		t.Errorf("after isolate, containment = %q, want isolate", c)
 	}
-	s.EnqueueAction(ctx, "host-a", model.ActionUnisolate, "", "op")
+	s.EnqueueAction(ctx, "host-a", model.ActionUnisolate, "", "op", model.ActionPending)
 	if c, _ := s.LatestContainment(ctx, "host-a"); c != model.ActionUnisolate {
 		t.Errorf("after unisolate, containment = %q, want unisolate", c)
 	}

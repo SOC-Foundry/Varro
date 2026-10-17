@@ -79,3 +79,23 @@ func unisolateHost(ctx context.Context) error {
 		"name="+isolRuleName).Run()
 	return nil
 }
+
+// blockIP drops traffic to/from a single IP via a pair of named netsh rules
+// (one per direction), so unblockIP can remove exactly this IP's rules.
+func blockIP(ctx context.Context, ip string) error {
+	name := "Varro Block " + ip
+	for _, dir := range []string{"out", "in"} {
+		out, err := exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "add", "rule",
+			"name="+name, "dir="+dir, "action=block", "remoteip="+ip).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("netsh add (%s): %s", dir, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+func unblockIP(ctx context.Context, ip string) error {
+	exec.CommandContext(ctx, "netsh", "advfirewall", "firewall", "delete", "rule",
+		"name=Varro Block "+ip).Run()
+	return nil
+}

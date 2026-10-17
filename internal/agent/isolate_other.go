@@ -18,3 +18,11 @@ func isolateHost(ctx context.Context, serverURL string) error {
 func unisolateHost(ctx context.Context) error {
 	return fmt.Errorf("host isolation is not yet implemented on %s", runtime.GOOS)
 }
+
+func blockIP(ctx context.Context, ip string) error {
+	return fmt.Errorf("block_ip is not yet implemented on %s", runtime.GOOS)
+}
+
+func unblockIP(ctx context.Context, ip string) error {
+	return fmt.Errorf("unblock_ip is not yet implemented on %s", runtime.GOOS)
+}

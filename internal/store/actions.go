@@ -8,12 +8,56 @@ import (
 	"github.com/soc-foundry/varro/internal/model"
 )
 
-// EnqueueAction records an operator-issued response action and returns its id.
-func (s *Store) EnqueueAction(ctx context.Context, endpointID, typ, arg, issuedBy string) (int64, error) {
+// EnqueueAction records a response action with an explicit status and returns its
+// id. Manual issuance uses "proposed" (needs approval); auto-response uses
+// "pending" (claimable immediately).
+func (s *Store) EnqueueAction(ctx context.Context, endpointID, typ, arg, issuedBy, status string) (int64, error) {
+	if status == "" {
+		status = model.ActionPending
+	}
 	return s.db.insertReturningID(ctx, `
 INSERT INTO actions (endpoint_id, type, arg, status, issued_by, issued_at)
-VALUES (?, ?, ?, 'pending', ?, ?)`,
-		endpointID, typ, arg, issuedBy, time.Now().Unix())
+VALUES (?, ?, ?, ?, ?, ?)`,
+		endpointID, typ, arg, status, issuedBy, time.Now().Unix())
+}
+
+// ApproveAction moves a proposed action to pending (claimable), recording the
+// approver. Returns false if the action wasn't in the proposed state.
+func (s *Store) ApproveAction(ctx context.Context, id int64, approver string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE actions SET status='pending', approved_by=? WHERE id=? AND status='proposed'`,
+		approver, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// RejectAction cancels a proposed action. Returns false if it wasn't proposed.
+func (s *Store) RejectAction(ctx context.Context, id int64, approver string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE actions SET status='rejected', approved_by=?, done_at=? WHERE id=? AND status='proposed'`,
+		approver, time.Now().Unix(), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ActionByID returns one action's core fields (for approval authorization).
+func (s *Store) ActionByID(ctx context.Context, id int64) (model.Action, error) {
+	var a model.Action
+	var issued int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, endpoint_id, type, arg, status, issued_by, issued_at FROM actions WHERE id = ?`, id).
+		Scan(&a.ID, &a.EndpointID, &a.Type, &a.Arg, &a.Status, &a.IssuedBy, &issued)
+	if err == sql.ErrNoRows {
+		return a, nil
+	}
+	a.IssuedAt = time.Unix(issued, 0).UTC()
+	return a, err
 }
 
 // ClaimActions returns an endpoint's pending actions and marks them sent, so a
@@ -73,7 +117,7 @@ func (s *Store) Actions(ctx context.Context, endpointID string, limit int) ([]mo
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, endpoint_id, type, arg, status, COALESCE(result,''), issued_by, issued_at, done_at
+SELECT id, endpoint_id, type, arg, status, COALESCE(result,''), issued_by, COALESCE(approved_by,''), issued_at, done_at
 FROM actions WHERE endpoint_id = ? ORDER BY id DESC LIMIT ?`, endpointID, limit)
 	if err != nil {
 		return nil, err
@@ -85,7 +129,7 @@ FROM actions WHERE endpoint_id = ? ORDER BY id DESC LIMIT ?`, endpointID, limit)
 		var issued int64
 		var done sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.EndpointID, &a.Type, &a.Arg, &a.Status, &a.Result,
-			&a.IssuedBy, &issued, &done); err != nil {
+			&a.IssuedBy, &a.ApprovedBy, &issued, &done); err != nil {
 			return nil, err
 		}
 		a.IssuedAt = time.Unix(issued, 0).UTC()

@@ -134,6 +134,51 @@ func unisolateIptables(ctx context.Context) error {
 	return nil
 }
 
+// blockIP drops traffic to and from a single IP at the host firewall using
+// iptables (ip6tables for v6) — independent of full isolation. Idempotent: it
+// checks (-C) before inserting (-I) so repeats don't stack duplicate rules.
+func blockIP(ctx context.Context, ip string) error {
+	bin := "iptables"
+	if strings.Contains(ip, ":") {
+		bin = "ip6tables"
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf("%s not available", bin)
+	}
+	for _, r := range [][]string{{"OUTPUT", "-d", ip}, {"INPUT", "-s", ip}} {
+		chain, dir, addr := r[0], r[1], r[2]
+		check := []string{"-C", chain, dir, addr, "-j", "DROP"}
+		if exec.CommandContext(ctx, bin, check...).Run() == nil {
+			continue // rule already present
+		}
+		ins := []string{"-I", chain, "1", dir, addr, "-j", "DROP"}
+		if out, err := exec.CommandContext(ctx, bin, ins...).CombinedOutput(); err != nil {
+			return fmt.Errorf("%s %v: %s", bin, ins, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+// unblockIP removes a previously-added block (best-effort, idempotent).
+func unblockIP(ctx context.Context, ip string) error {
+	bin := "iptables"
+	if strings.Contains(ip, ":") {
+		bin = "ip6tables"
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return nil
+	}
+	for _, r := range [][]string{{"OUTPUT", "-d", ip}, {"INPUT", "-s", ip}} {
+		// Delete repeatedly in case the rule was added more than once.
+		for i := 0; i < 8; i++ {
+			if exec.CommandContext(ctx, bin, "-D", r[0], r[1], r[2], "-j", "DROP").Run() != nil {
+				break
+			}
+		}
+	}
+	return nil
+}
+
 func indent(s string) string {
 	var b strings.Builder
 	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
