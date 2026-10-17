@@ -7,7 +7,7 @@ workflows behind one live dashboard, REST API, Prometheus exporter, and CLI.
 Pure Go, no cgo: one static binary (`varro`) with subcommands, SQLite out of the
 box or Postgres (with HA) for scale.
 
-**Current release:** [v1.1.1](https://github.com/SOC-Foundry/Varro/releases/tag/v1.1.1) · [changelog](CHANGELOG.md)
+**Current release:** [v1.1.2](https://github.com/SOC-Foundry/Varro/releases/tag/v1.1.2) · [changelog](CHANGELOG.md)
 
 ## Capabilities
 

@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.1.2] — 2026-10-16
+- Windows ETW: ProcessStart events are now decoded schema-accurately via **TDH** (`TdhGetEventInformation` / `TdhGetProperty`) — resolving the ProcessID and ImageName by property *name* instead of guessing byte offsets, so image-name extraction is robust across event versions. Defensive: the two-call sizing pattern means the OS never writes past our buffers, every read is bounds-checked, and any failure (TDH unavailable, unexpected layout) falls back to the previous byte-scan — so it can't regress or fault. Validated on `windows-latest` in CI. (Third v1.1 slice item; Windows-agent-only — no effect on Linux/macOS agents.)
+
 ## [v1.1.1] — 2026-10-16
 - Deep-linkable views: the dashboard now reflects the current view in the URL (`#traces`, `#topology`, `#admin`, `#endpoint/<id>`, …), so views and selected endpoints are shareable and bookmarkable, and the browser back/forward buttons work. Opening a link goes straight to that view; nav tabs and the "← back to endpoints" links drive the URL. (Second v1.1 slice item; UI-only.)
 

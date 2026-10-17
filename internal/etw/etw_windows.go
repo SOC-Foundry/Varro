@@ -21,8 +21,9 @@ import (
 // on a real Windows runner in CI (internal/etw TestETWExercise on windows-latest).
 // Still defensive: any Start() failure (e.g. a non-admin host) returns an error so
 // the agent falls back to the polling sensor, and the event callback is
-// panic-contained. Event-field parsing (PID / image name) is best-effort and may
-// want a TDH-based refinement. See docs/agent-platforms.md.
+// panic-contained. Event fields (PID / image name) are decoded schema-accurately
+// via TDH (TdhGetEventInformation/TdhGetProperty) with a bounds-checked byte-scan
+// fallback. See docs/agent-platforms.md.
 //
 // Kernel-Process provider GUID {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}.
 var kernelProcessGUID = windows.GUID{
@@ -50,6 +51,11 @@ var (
 	procOpenTraceW    = advapi32.NewProc("OpenTraceW")
 	procProcessTrace  = advapi32.NewProc("ProcessTrace")
 	procCloseTrace    = advapi32.NewProc("CloseTrace")
+
+	tdh                        = windows.NewLazySystemDLL("tdh.dll")
+	procTdhGetEventInformation = tdh.NewProc("TdhGetEventInformation")
+	procTdhGetProperty         = tdh.NewProc("TdhGetProperty")
+	procTdhGetPropertySize     = tdh.NewProc("TdhGetPropertySize")
 )
 
 type wnodeHeader struct {
@@ -234,16 +240,161 @@ func eventRecordCallback(rec *eventRecord) uintptr {
 	}
 	data := unsafe.Slice((*byte)(rec.UserData), n)
 	// ProcessStart UserData begins with the new ProcessID (uint32), followed by
-	// other fields and a UTF-16 ImageName. Read the PID, then best-effort scan
-	// for the image name — all bounds-checked.
+	// other fields and a UTF-16 ImageName. Read the PID, then resolve the image
+	// name. Prefer a schema-accurate TDH decode; fall back to the best-effort
+	// byte-scan if TDH is unavailable or the schema layout doesn't match — so this
+	// never regresses or faults (both paths are bounds-checked).
 	pid := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
-	comm := scanUTF16Name(data)
+	comm := ""
+	if tpid, timg, ok := tdhDecode(rec); ok {
+		if tpid != 0 {
+			pid = tpid
+		}
+		comm = baseName(timg)
+	}
+	if comm == "" {
+		comm = scanUTF16Name(data)
+	}
 	t.mu.Lock()
 	if !t.closed && len(t.events) < 4096 {
 		t.events = append(t.events, model.ExecSample{PID: pid, Comm: comm})
 	}
 	t.mu.Unlock()
 	return 0
+}
+
+// propertyDataDescriptor mirrors PROPERTY_DATA_DESCRIPTOR (16 bytes): a pointer to
+// the property name plus an array index.
+type propertyDataDescriptor struct {
+	PropertyName uint64 // pointer to a null-terminated UTF-16 name
+	ArrayIndex   uint32
+	Reserved     uint32
+}
+
+const errorInsufficientBuffer = 122
+
+func le32(b []byte, off int) uint32 {
+	if off < 0 || off+4 > len(b) {
+		return 0
+	}
+	return uint32(b[off]) | uint32(b[off+1])<<8 | uint32(b[off+2])<<16 | uint32(b[off+3])<<24
+}
+
+// tdhDecode uses the Trace Data Helper to resolve the ProcessStart event's
+// ProcessID and ImageName by property *name* (schema-accurate, version-independent)
+// rather than guessing byte offsets. Defensive throughout: it uses the two-call
+// sizing pattern (the OS never writes past our buffers) and bounds-checks every
+// read into the returned buffer, so a mismatched struct layout yields a failed
+// decode (ok=false → caller falls back), never a fault. Returns ok=true only when
+// an image name was extracted.
+func tdhDecode(rec *eventRecord) (pid uint32, image string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			pid, image, ok = 0, "", false
+		}
+	}()
+	// 1. Size + fetch TRACE_EVENT_INFO.
+	var size uint32
+	r, _, _ := procTdhGetEventInformation.Call(uintptr(unsafe.Pointer(rec)), 0, 0, 0, uintptr(unsafe.Pointer(&size)))
+	if r != errorInsufficientBuffer || size < 112 || size > 1<<20 {
+		return 0, "", false
+	}
+	buf := make([]byte, size)
+	r, _, _ = procTdhGetEventInformation.Call(uintptr(unsafe.Pointer(rec)), 0, 0,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if r != 0 {
+		return 0, "", false
+	}
+	// TRACE_EVENT_INFO (modern layout): PropertyCount @100, property-info array @112,
+	// each EVENT_PROPERTY_INFO is 24 bytes with NameOffset @+4.
+	propCount := int(le32(buf, 100))
+	if propCount < 1 || propCount > 256 {
+		return 0, "", false
+	}
+	const arrayBase, infoSize, nameOffField = 112, 24, 4
+	for i := 0; i < propCount; i++ {
+		pi := arrayBase + i*infoSize
+		if pi+infoSize > len(buf) {
+			break
+		}
+		nameOff := int(le32(buf, pi+nameOffField))
+		name := utf16AtOffset(buf, nameOff)
+		switch name {
+		case "ProcessID":
+			if v, vok := tdhProperty(rec, buf, nameOff); vok && len(v) >= 4 {
+				pid = le32(v, 0)
+			}
+		case "ImageName":
+			if v, vok := tdhProperty(rec, buf, nameOff); vok {
+				image = utf16Bytes(v)
+			}
+		}
+	}
+	return pid, image, image != ""
+}
+
+// tdhProperty extracts one property's raw value bytes via TdhGetProperty, naming
+// it by a pointer to its UTF-16 name inside buf at nameOff (two-call sizing).
+func tdhProperty(rec *eventRecord, buf []byte, nameOff int) ([]byte, bool) {
+	if nameOff < 0 || nameOff+2 > len(buf) {
+		return nil, false
+	}
+	desc := propertyDataDescriptor{PropertyName: uint64(uintptr(unsafe.Pointer(&buf[nameOff])))}
+	var size uint32
+	r, _, _ := procTdhGetPropertySize.Call(uintptr(unsafe.Pointer(rec)), 0, 0, 1,
+		uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(&size)))
+	if r != 0 || size == 0 || size > 1<<16 {
+		return nil, false
+	}
+	out := make([]byte, size)
+	r, _, _ = procTdhGetProperty.Call(uintptr(unsafe.Pointer(rec)), 0, 0, 1,
+		uintptr(unsafe.Pointer(&desc)), uintptr(size), uintptr(unsafe.Pointer(&out[0])))
+	if r != 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// utf16AtOffset reads a null-terminated UTF-16 string from b at off, bounds-checked.
+func utf16AtOffset(b []byte, off int) string {
+	if off < 0 || off+2 > len(b) {
+		return ""
+	}
+	var u16 []uint16
+	for i := off; i+2 <= len(b); i += 2 {
+		c := uint16(b[i]) | uint16(b[i+1])<<8
+		if c == 0 {
+			break
+		}
+		u16 = append(u16, c)
+		if len(u16) > 512 {
+			break
+		}
+	}
+	return windows.UTF16ToString(u16)
+}
+
+// utf16Bytes converts a buffer of UTF-16LE bytes to a string.
+func utf16Bytes(b []byte) string {
+	u16 := make([]uint16, 0, len(b)/2)
+	for i := 0; i+2 <= len(b); i += 2 {
+		c := uint16(b[i]) | uint16(b[i+1])<<8
+		if c == 0 {
+			break
+		}
+		u16 = append(u16, c)
+	}
+	return windows.UTF16ToString(u16)
+}
+
+// baseName returns the trailing path component of a Windows/NT image path.
+func baseName(p string) string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '\\' || p[i] == '/' {
+			return p[i+1:]
+		}
+	}
+	return p
 }
 
 // scanUTF16Name finds the first plausible null-terminated UTF-16 run in the event

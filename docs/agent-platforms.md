@@ -65,10 +65,12 @@ cross-compile release pipeline doesn't yet have:
   struct layouts don't fault at the syscall boundary (the earlier concern). The
   agent now uses ETW by default on Windows (before the polling sensor); any
   `Start()` failure (e.g. a non-admin host) falls back to the poller, and the
-  event callback is panic-contained. **Remaining refinement (non-blocking):** the
-  ProcessStart UserData field parsing (PID / image name) is best-effort byte
-  scanning — a TDH-based decode would make the image-name extraction robust across
-  event versions. The `-Network` (TCP-connect) provider is a further follow-up.
+  event callback is panic-contained. ProcessStart fields (PID / image name) are
+  decoded schema-accurately via **TDH** (`TdhGetEventInformation` /
+  `TdhGetProperty`, resolving properties by name so it's robust across event
+  versions), with a bounds-checked byte-scan fallback if TDH is unavailable or the
+  layout doesn't match (v1.1.2). The `-Network` (TCP-connect) provider is a further
+  follow-up.
 - **macOS: Endpoint Security Framework (ESF)** — `es_new_client` with
   `ES_EVENT_TYPE_NOTIFY_EXEC` / `..._CONNECT`. Requires cgo, a **signed system
   extension** with the `com.apple.developer.endpoint-security.client`
