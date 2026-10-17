@@ -76,6 +76,9 @@ endpoint C ──┘  (per-agent tokens,             │
 
 ## Installing agents on endpoints
 
+> **Full install quickstart** (agents on Linux/macOS/Windows, standing up a
+> collector, orgs & tokens, uninstall): **[docs/install.md](docs/install.md)**.
+
 Each Linux endpoint joins with one command, using its org's enrollment token
 (the token decides which org the machine lands in):
 
