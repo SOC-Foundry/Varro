@@ -174,6 +174,7 @@ type OutboundConn struct {
 	Remote     string `json:"remote"`
 	RemoteName string `json:"remote_name,omitempty"` // reverse-DNS, filled by the server
 	Domain     string `json:"domain,omitempty"`      // forward DNS/SNI name, filled by the agent's watcher
+	JA3        string `json:"ja3,omitempty"`         // TLS client fingerprint observed for the remote (passive)
 	PID        int32  `json:"pid"`
 	Process    string `json:"process"`
 }
@@ -639,6 +640,7 @@ const (
 	IOCTypeIP     = "ip"
 	IOCTypeDomain = "domain"
 	IOCTypeHash   = "hash"
+	IOCTypeJA3    = "ja3" // TLS client fingerprint (MD5)
 )
 
 // IOC is a persisted per-org indicator of compromise (a known-bad IP, domain, or
@@ -658,6 +660,7 @@ type IOCCounts struct {
 	IP     int `json:"ip"`
 	Domain int `json:"domain"`
 	Hash   int `json:"hash"`
+	JA3    int `json:"ja3"`
 }
 
 // STIXFeed is a per-org configured STIX 2.1 / TAXII 2.1 indicator feed URL that

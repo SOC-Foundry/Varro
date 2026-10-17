@@ -99,6 +99,7 @@ func (c *Collector) SetConnTracer(t connDrainer) { c.connTracer = t }
 // flows/connections can be labeled with real domains.
 type dnsLookup interface {
 	Lookup(ip string) string
+	JA3(ip string) string
 }
 
 // SetDNSResolver attaches the passive DNS watcher; its IP->domain cache labels
@@ -235,6 +236,7 @@ func (c *Collector) attachDomains(snap *model.Snapshot) {
 	for i := range snap.Security.Connections {
 		if ip, _ := splitHostPort(snap.Security.Connections[i].Remote); ip != "" {
 			snap.Security.Connections[i].Domain = c.dns.Lookup(ip)
+			snap.Security.Connections[i].JA3 = c.dns.JA3(ip)
 		}
 	}
 }

@@ -36,6 +36,12 @@ func normalizeIOC(iocType, value string) (string, string, bool) {
 			return "", "", false
 		}
 		return iocType, h, true
+	case model.IOCTypeJA3:
+		h := strings.ToLower(value)
+		if len(h) != 32 || !isHex(h) { // JA3 is an MD5
+			return "", "", false
+		}
+		return iocType, h, true
 	}
 	return "", "", false
 }

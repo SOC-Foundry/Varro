@@ -30,6 +30,7 @@ type DNSWatcher struct {
 
 type dnsEntry struct {
 	domain string
+	ja3    string // TLS JA3 fingerprint observed for this server IP (from its ClientHello)
 	expiry time.Time
 }
 
@@ -157,14 +158,32 @@ func (w *DNSWatcher) handleTCP(p []byte) {
 	if dataOff < 20 || len(tcp) < dataOff {
 		return
 	}
-	sni, ok := parseTLSClientHelloSNI(tcp[dataOff:])
+	ja3, _, sni, ok := parseClientHelloJA3(tcp[dataOff:])
 	if !ok {
 		return
 	}
 	w.mu.Lock()
 	w.ensureRoomLocked()
-	w.cache[dstIP] = dnsEntry{domain: sni, expiry: time.Now().Add(sniHold)}
+	// Preserve a known domain for this IP if the ClientHello had no SNI.
+	if sni == "" {
+		if prev, had := w.cache[dstIP]; had {
+			sni = prev.domain
+		}
+	}
+	w.cache[dstIP] = dnsEntry{domain: sni, ja3: ja3, expiry: time.Now().Add(sniHold)}
 	w.mu.Unlock()
+}
+
+// JA3 returns the most recently observed TLS JA3 fingerprint for a server IP, or
+// "" if none/expired.
+func (w *DNSWatcher) JA3(ip string) string {
+	w.mu.RLock()
+	e, ok := w.cache[ip]
+	w.mu.RUnlock()
+	if !ok || time.Now().After(e.expiry) {
+		return ""
+	}
+	return e.ja3
 }
 
 // Lookup returns the most recently observed domain for an IP, or "" if unknown

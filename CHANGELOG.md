@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.4.0] — 2026-10-17
+- Deeper telemetry — TLS **JA3 fingerprinting**. The passive DNS/SNI watcher (Linux, AF_PACKET) now also computes the **JA3** fingerprint of each observed TLS ClientHello (GREASE-stripped, per spec) and labels outbound connections with it — so you can identify the *client* behind a TLS connection (tool/malware family) even when the destination IP/domain is new. JA3 is shown on the connections view and is a new **IOC type**: add known-malicious JA3 hashes (manually or via feeds) and Varro raises a threat match when a connection's fingerprint hits one — catching C2 clients independent of IP/domain. (First of several planned endpoint-telemetry deepenings; passive JA3 capture is Linux-only, like the DNS watcher.)
+
 ## [v1.3.0] — 2026-10-16
 - Response actions + approval workflow. New response actions beyond host isolation: **kill-process** (already present), **block-IP** at the host firewall (Linux iptables/ip6tables + Windows netsh; Linux/Windows-first), and **quarantine-file** (renames the file in place and strips its permissions; cross-platform). Every **manually-issued** action now follows a **propose → approve → execute** workflow: it's queued as `proposed` and only becomes runnable once an org admin approves it (reject cancels it); self-approval is allowed for solo operators but recorded as such, and every step is audited + shown in the endpoint's event feed. Auto-response (SOAR playbooks) still executes immediately — it's policy-approved by the playbook. UI: a "Response actions" panel on each endpoint with approve/reject controls and status. `POST /api/v1/actions/{id}/approve|reject` (org admin).
 

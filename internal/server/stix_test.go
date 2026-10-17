@@ -92,6 +92,8 @@ func TestNormalizeIOC(t *testing.T) {
 		{"domain", "nodot", "", "", false},
 		{"hash", "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899", "hash", "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", true},
 		{"hash", "tooshort", "", "", false},
+		{"ja3", "AABBCCDDEEFF00112233445566778899", "ja3", "aabbccddeeff00112233445566778899", true}, // 32-hex MD5
+		{"ja3", "deadbeef", "", "", false},                                                          // too short
 		{"bogus", "x", "", "", false},
 	}
 	for _, c := range cases {

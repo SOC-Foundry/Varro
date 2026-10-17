@@ -13,4 +13,5 @@ func StartDNSWatch() (*DNSWatcher, error) {
 }
 
 func (w *DNSWatcher) Lookup(string) string { return "" }
+func (w *DNSWatcher) JA3(string) string    { return "" }
 func (w *DNSWatcher) Close() error         { return nil }

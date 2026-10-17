@@ -797,13 +797,13 @@
         <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Your own IOCs are matched against endpoint connections, resolved domains, and process-binary hashes — alongside the built-in abuse.ch feeds. Add indicators by hand, poll a STIX 2.1 / TAXII 2.1 feed URL, or paste a STIX bundle to import.</p>
         <div id="iocCounts" style="display:flex; gap:14px; font-size:12.5px; margin-bottom:10px; color:var(--dim)"></div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px">
-          <select id="iocType" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="ip">IP</option><option value="domain">domain</option><option value="hash">SHA-256</option></select>
+          <select id="iocType" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12.5px"><option value="ip">IP</option><option value="domain">domain</option><option value="hash">SHA-256</option><option value="ja3">JA3</option></select>
           <input id="iocValue" placeholder="indicator value" style="flex:1; min-width:200px; background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; font-family:var(--mono)">
           <input id="iocLabel" placeholder="label (optional)" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12.5px; min-width:120px">
           <button class="abtn" id="addIocBtn">Add IOC</button>
         </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px">
-          <select id="iocFilter" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12px"><option value="">all types</option><option value="ip">IP</option><option value="domain">domain</option><option value="hash">SHA-256</option></select>
+          <select id="iocFilter" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px; font-size:12px"><option value="">all types</option><option value="ip">IP</option><option value="domain">domain</option><option value="hash">SHA-256</option><option value="ja3">JA3</option></select>
           <input id="iocSearch" placeholder="filter value…" style="background:#1c232c; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12px; min-width:160px">
         </div>
         <div style="overflow-x:auto; max-height:280px; overflow-y:auto"><table>
@@ -1286,7 +1286,9 @@ function renderDetail(snap, hist) {
   $("connNow").textContent = `${snap.security?.established_conns ?? 0} established`;
   $("conns").innerHTML = conns.map(cn => {
     const where = cn.remote_name ? `${esc(cn.remote_name)} <span style="color:var(--dim)">${esc(cn.remote)}</span>` : esc(cn.remote);
-    return `<tr><td>${esc(cn.process || "–")}</td><td>${where}</td><td class="num">${cn.pid}</td></tr>`;
+    const dom = cn.domain ? ` <span style="color:var(--accent); font-size:11px">${esc(cn.domain)}</span>` : "";
+    const ja3 = cn.ja3 ? ` <span title="TLS JA3 fingerprint ${esc(cn.ja3)}" style="color:#bc8cff; font-family:var(--mono); font-size:10.5px">JA3 ${esc(cn.ja3.slice(0, 8))}…</span>` : "";
+    return `<tr><td>${esc(cn.process || "–")}</td><td>${where}${dom}${ja3}</td><td class="num">${cn.pid}</td></tr>`;
   }).join("") || '<tr><td colspan="3" style="color:var(--dim)">none visible</td></tr>';
 
   $("disks").innerHTML = (snap.disks ?? []).map(d => {
@@ -1774,11 +1776,12 @@ async function loadIOCs(org) {
     if (ft) qs.set("type", ft);
     if (q) qs.set("q", q);
     const r = await getJSON(`/api/v1/orgs/${encodeURIComponent(org)}/iocs?` + qs.toString());
-    const c = r.counts || { ip: 0, domain: 0, hash: 0 };
+    const c = r.counts || { ip: 0, domain: 0, hash: 0, ja3: 0 };
     $("iocCounts").innerHTML =
       `<span><b style="color:var(--text)">${c.ip}</b> IPs</span>` +
       `<span><b style="color:var(--text)">${c.domain}</b> domains</span>` +
-      `<span><b style="color:var(--text)">${c.hash}</b> hashes</span>`;
+      `<span><b style="color:var(--text)">${c.hash}</b> hashes</span>` +
+      `<span><b style="color:var(--text)">${c.ja3 || 0}</b> JA3</span>`;
     const rows = r.iocs || [];
     const tb = $("iocRows");
     if (!rows.length) { tb.innerHTML = `<tr><td colspan="5" style="color:var(--dim)">no indicators${ft || q ? " match the filter" : " yet"}</td></tr>`; return; }

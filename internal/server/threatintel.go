@@ -69,6 +69,7 @@ type iocSet struct {
 	ips     map[string]bool
 	domains map[string]bool
 	hashes  map[string]bool
+	ja3s    map[string]bool
 }
 
 func newThreatIntel(feeds, hashFeeds, domainFeeds []string) *threatIntel {
@@ -129,6 +130,16 @@ func (t *threatIntel) isBadCustomHash(org, h string) bool {
 	return s != nil && s.hashes[strings.ToLower(h)]
 }
 
+func (t *threatIntel) isBadCustomJA3(org, j string) bool {
+	if j == "" {
+		return false
+	}
+	t.customMu.RLock()
+	defer t.customMu.RUnlock()
+	s := t.custom[org]
+	return s != nil && s.ja3s[strings.ToLower(j)]
+}
+
 // isBadCustomDomain matches a domain or any of its parent domains against the
 // org's custom domain set (so "a.evil.example" matches a listed "evil.example").
 func (t *threatIntel) isBadCustomDomain(org, domain string) bool {
@@ -172,7 +183,7 @@ func (s *Server) reloadCustomIOCs(ctx context.Context) {
 	for _, ioc := range iocs {
 		set := m[ioc.OrgID]
 		if set == nil {
-			set = &iocSet{ips: map[string]bool{}, domains: map[string]bool{}, hashes: map[string]bool{}}
+			set = &iocSet{ips: map[string]bool{}, domains: map[string]bool{}, hashes: map[string]bool{}, ja3s: map[string]bool{}}
 			m[ioc.OrgID] = set
 		}
 		switch ioc.Type {
@@ -182,6 +193,8 @@ func (s *Server) reloadCustomIOCs(ctx context.Context) {
 			set.domains[ioc.Value] = true
 		case model.IOCTypeHash:
 			set.hashes[strings.ToLower(ioc.Value)] = true
+		case model.IOCTypeJA3:
+			set.ja3s[strings.ToLower(ioc.Value)] = true
 		}
 	}
 	s.ti.setCustom(m)
@@ -428,6 +441,19 @@ func (s *Server) checkThreats(ctx context.Context, orgID string, snap *model.Sna
 		return
 	}
 	for _, conn := range snap.Security.Connections {
+		// TLS fingerprint match: a connection whose JA3 is on the org's IOC list
+		// (e.g. a known-malware C2 client fingerprint), even to a fresh IP/domain.
+		if conn.JA3 != "" && s.ti.isBadCustomJA3(orgID, conn.JA3) && s.ti.shouldAlert(snap.AgentID, "ja3:"+conn.JA3) {
+			proc := conn.Process
+			if proc == "" {
+				proc = "unknown process"
+			}
+			msg := "THREAT: " + snap.Hostname + " (" + proc + ") made a TLS connection with known-malicious JA3 " + conn.JA3
+			s.store.InsertServerEvent(ctx, orgID, snap.AgentID, model.EventThreatMatch, msg)
+			s.log.Warn("JA3 threat match", "endpoint", snap.Hostname, "ja3", conn.JA3, "process", proc)
+			s.notifyEvents(orgID, snap.Hostname, []model.Event{{Type: model.EventThreatMatch, Message: msg}})
+			s.siemForward(orgID, snap.Hostname, model.EventThreatMatch, "HIGH", "T1071 Application Layer Protocol", msg)
+		}
 		ip, _ := splitRemote(conn.Remote)
 		if ip == "" || !(s.ti.isBad(ip) || s.ti.isBadCustomIP(orgID, ip)) || !s.ti.shouldAlert(snap.AgentID, ip) {
 			continue

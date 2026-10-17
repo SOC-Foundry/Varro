@@ -102,6 +102,8 @@ func (s *Store) CountIOCs(ctx context.Context, orgID string) (model.IOCCounts, e
 			c.Domain = n
 		case model.IOCTypeHash:
 			c.Hash = n
+		case model.IOCTypeJA3:
+			c.JA3 = n
 		}
 	}
 	return c, rows.Err()
