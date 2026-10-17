@@ -232,6 +232,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/orgs/{id}/silences", s.handleSilencesList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/silences", s.handleSilenceCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/silences/{silID}", s.handleSilenceDelete)
+	mux.HandleFunc("GET /api/v1/attack", s.handleAttackCoverage)
 	mux.HandleFunc("GET /api/v1/slos", s.handleSLOList)
 	mux.HandleFunc("POST /api/v1/orgs/{id}/slos", s.handleSLOCreate)
 	mux.HandleFunc("DELETE /api/v1/orgs/{id}/slos/{service}", s.handleSLODelete)

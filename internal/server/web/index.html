@@ -734,6 +734,11 @@
         </div>
         <div id="routeErr" style="color:var(--red); font-size:12px; margin-top:6px"></div>
       </div>
+      <div class="card wide"><h3>ATT&amp;CK coverage <span style="color:var(--dim); font-weight:400">· which techniques your enabled detections cover</span></h3>
+        <div id="attackSummary" style="font-size:12.5px; margin-bottom:10px; color:var(--dim)"></div>
+        <div id="attackMatrix" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px"></div>
+        <div style="font-size:11px; color:var(--dim); margin-top:8px"><span style="color:var(--green)">■</span> covered · <span style="color:#30363d">■</span> gap · curated endpoint-relevant subset of ATT&amp;CK, not the full matrix</div>
+      </div>
       <div class="card wide"><h3>Detection rules</h3>
         <p style="color:var(--dim); font-size:12px; margin-bottom:8px">Behavioral detections evaluated per snapshot (process, connection, listener streams). Toggle the built-ins, add custom field-match rules, or import a Sigma rule.</p>
         <div style="font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin:2px 0 4px">Built-in</div>
@@ -1499,6 +1504,7 @@ async function loadAdminOrg() {
       $("fimPaths").value = (fim.paths ?? []).join("\n");
     } catch {}
     loadRoutes(org);
+    loadAttack(org);
     loadDetections(org);
     loadPlaybooks(org);
     loadSilences(org);
@@ -1807,6 +1813,28 @@ async function importStixBundle() {
     $("stixMsg").textContent = `imported ${r.ingested} indicators`; $("stixPaste").value = "";
     loadIOCs(org);
   } catch (e) { $("stixMsg").style.color = "var(--red)"; $("stixMsg").textContent = e.message; }
+}
+
+/* ---- ATT&CK coverage map (admin) ---- */
+async function loadAttack(org) {
+  try {
+    const d = await getJSON(`/api/v1/attack?org=${encodeURIComponent(org)}`);
+    const pct = d.total_techniques ? Math.round(100 * d.covered_techniques / d.total_techniques) : 0;
+    const pc = pct >= 60 ? "var(--green)" : pct >= 30 ? "var(--amber)" : "var(--red)";
+    $("attackSummary").innerHTML = `<b style="color:${pc}">${d.covered_techniques}/${d.total_techniques}</b> techniques covered (<span style="color:${pc}">${pct}%</span>)`;
+    $("attackMatrix").innerHTML = (d.tactics || []).map(t => {
+      const cells = (t.techniques || []).map(tech => {
+        const bg = tech.covered ? "#13341f" : "#161b22";
+        const bd = tech.covered ? "#2ea043" : "var(--border)";
+        const fg = tech.covered ? "#7ee2a8" : "var(--dim)";
+        const title = tech.id + " " + tech.name + (tech.rules && tech.rules.length ? " — " + tech.rules.join(", ") : "");
+        return `<div title="${esc(title)}" style="background:${bg}; border:1px solid ${bd}; color:${fg}; border-radius:4px; padding:3px 5px; margin-bottom:4px; font-size:10.5px; font-family:var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis" >${esc(tech.id)} <span style="color:var(--dim)">${esc(tech.name.length > 18 ? tech.name.slice(0, 17) + "…" : tech.name)}</span></div>`;
+      }).join("");
+      return `<div style="min-width:150px; flex:0 0 auto">
+        <div style="font-size:10.5px; font-weight:600; margin-bottom:5px; color:var(--text)">${esc(t.tactic)} <span style="color:var(--dim); font-weight:400">${t.covered}/${t.total}</span></div>
+        ${cells}</div>`;
+    }).join("");
+  } catch (e) { $("attackMatrix").innerHTML = `<div style="color:var(--red); font-size:12px">${esc(e.message)}</div>`; }
 }
 
 /* ---- fleet health & agent rollout (instance admin) ---- */

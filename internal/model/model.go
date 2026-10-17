@@ -700,6 +700,30 @@ type FleetSummary struct {
 	Agents       []FleetAgent   `json:"agents"`
 }
 
+// AttackTechnique is one ATT&CK technique and whether the org's enabled
+// detections cover it (and which rules do).
+type AttackTechnique struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Covered bool     `json:"covered"`
+	Rules   []string `json:"rules,omitempty"`
+}
+
+// AttackTactic groups techniques under an ATT&CK tactic with a coverage tally.
+type AttackTactic struct {
+	Tactic     string            `json:"tactic"`
+	Covered    int               `json:"covered"`
+	Total      int               `json:"total"`
+	Techniques []AttackTechnique `json:"techniques"`
+}
+
+// AttackCoverage is the detection-coverage map across the ATT&CK matrix.
+type AttackCoverage struct {
+	Tactics           []AttackTactic `json:"tactics"`
+	CoveredTechniques int            `json:"covered_techniques"`
+	TotalTechniques   int            `json:"total_techniques"`
+}
+
 // SLO is a per-service success-rate objective: at least Target (0..1, e.g. 0.999)
 // of requests should succeed over the trailing WindowMinutes. The error budget is
 // (1 - Target) of requests; consuming it all is a breach.
