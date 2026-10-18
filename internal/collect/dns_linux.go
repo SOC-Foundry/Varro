@@ -4,8 +4,11 @@ package collect
 
 import (
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -26,6 +29,9 @@ type DNSWatcher struct {
 	mu     sync.RWMutex
 	cache  map[string]dnsEntry
 	closed bool
+
+	// capture counters (diagnostics; logged when VARRO_DNS_DEBUG is set)
+	dnsSeen, tcpRaw, tcpSeen, hellos, ja3s atomic.Uint64
 }
 
 type dnsEntry struct {
@@ -44,8 +50,8 @@ const (
 
 // openPacketSocket opens an AF_PACKET SOCK_DGRAM socket (all interfaces,
 // including loopback) with the given classic-BPF filter attached in-kernel.
-func openPacketSocket(filter []unix.SockFilter) (int, error) {
-	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(htons(unix.ETH_P_IP)))
+func openPacketSocket(filter []unix.SockFilter, ethProto uint16) (int, error) {
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM, int(htons(ethProto)))
 	if err != nil {
 		return -1, fmt.Errorf("open AF_PACKET socket: %w", err)
 	}
@@ -79,19 +85,44 @@ func StartDNSWatch() (*DNSWatcher, error) {
 		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
 	}
 
-	dnsFD, err := openPacketSocket(dnsFilter)
+	// DNS only needs inbound responses, so ETH_P_IP (RX taps) suffices.
+	dnsFD, err := openPacketSocket(dnsFilter, unix.ETH_P_IP)
 	if err != nil {
 		return nil, err
 	}
 	w := &DNSWatcher{fds: []int{dnsFD}, cache: make(map[string]dnsEntry)}
 
-	// SNI capture is a bonus; if its socket fails, keep DNS working.
-	if sniFD, err := openPacketSocket(sniFilter); err == nil {
+	// SNI/JA3 lives in the *outbound* ClientHello. Outbound (TX) packets are only
+	// delivered to packet sockets bound to ETH_P_ALL (the ptype_all tap), not to
+	// an ETH_P_IP-bound socket — so this socket must use ETH_P_ALL. The in-kernel
+	// cBPF filter still narrows delivery to TCP :443. (SOCK_DGRAM strips the link
+	// header either way, so the IP header remains at offset 0.)
+	if sniFD, err := openPacketSocket(sniFilter, unix.ETH_P_ALL); err == nil {
 		w.fds = append(w.fds, sniFD)
 		go w.run(sniFD, w.handleTCP)
 	}
 	go w.run(dnsFD, w.handleUDP)
+	if os.Getenv("VARRO_DNS_DEBUG") != "" {
+		go w.debugLoop()
+	}
 	return w, nil
+}
+
+// debugLoop periodically logs capture counters so the passive DNS/SNI/JA3 path
+// can be diagnosed on a live host. Off unless VARRO_DNS_DEBUG is set.
+func (w *DNSWatcher) debugLoop() {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		w.mu.RLock()
+		closed, n := w.closed, len(w.cache)
+		w.mu.RUnlock()
+		if closed {
+			return
+		}
+		log.Printf("varro dns-watch: dns_responses=%d tcp443_raw=%d tcp443_valid=%d client_hellos=%d ja3_cached=%d cache=%d",
+			w.dnsSeen.Load(), w.tcpRaw.Load(), w.tcpSeen.Load(), w.hellos.Load(), w.ja3s.Load(), n)
+	}
 }
 
 func (w *DNSWatcher) run(fd int, handle func([]byte)) {
@@ -129,6 +160,7 @@ func (w *DNSWatcher) handleUDP(p []byte) {
 	if !ok {
 		return
 	}
+	w.dnsSeen.Add(1)
 	hold := time.Duration(ttl) * time.Second
 	if hold < dnsMinHold {
 		hold = dnsMinHold
@@ -137,7 +169,9 @@ func (w *DNSWatcher) handleUDP(p []byte) {
 	w.mu.Lock()
 	w.ensureRoomLocked()
 	for _, ip := range ips {
-		w.cache[ip] = dnsEntry{domain: qname, expiry: exp}
+		// Preserve a JA3 already observed for this IP — a DNS response must not
+		// clobber a captured TLS fingerprint.
+		w.cache[ip] = dnsEntry{domain: qname, ja3: w.cache[ip].ja3, expiry: exp}
 	}
 	w.mu.Unlock()
 }
@@ -145,6 +179,7 @@ func (w *DNSWatcher) handleUDP(p []byte) {
 // handleTCP parses an IPv4/TCP :443 packet and, if it carries a ClientHello,
 // records the destination server IP under its SNI hostname.
 func (w *DNSWatcher) handleTCP(p []byte) {
+	w.tcpRaw.Add(1) // every packet the TCP/443 socket delivers, pre-validation
 	if len(p) < 20 || p[0]>>4 != 4 {
 		return
 	}
@@ -158,9 +193,14 @@ func (w *DNSWatcher) handleTCP(p []byte) {
 	if dataOff < 20 || len(tcp) < dataOff {
 		return
 	}
+	w.tcpSeen.Add(1)
 	ja3, _, sni, ok := parseClientHelloJA3(tcp[dataOff:])
 	if !ok {
 		return
+	}
+	w.hellos.Add(1)
+	if ja3 != "" {
+		w.ja3s.Add(1)
 	}
 	w.mu.Lock()
 	w.ensureRoomLocked()

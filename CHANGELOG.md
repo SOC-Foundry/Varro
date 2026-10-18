@@ -7,6 +7,9 @@ Dates are commit dates (UTC).
 Core agent + collector, alerting, per-agent enrollment tokens, and multi-tenant
 orgs predate tagged releases (v0.1–v0.3).
 
+## [v1.4.1] — 2026-10-18
+- Fix (passive TLS capture): the SNI/JA3 capture socket saw **zero** packets because it was bound to `ETH_P_IP` — and outbound (TX) packets are only delivered to AF_PACKET sockets on the `ETH_P_ALL` tap, not to a specific-ethertype socket. Since the ClientHello (which carries SNI + JA3) is always *outbound*, nothing was ever captured on it (DNS worked only because it reads *inbound* responses). Binding that socket to `ETH_P_ALL` fixes it — verified on a live host: TCP/443 packets 0→575, ClientHellos parsed 0→11, JA3 fingerprints 0→11. This also repairs SNI-derived connection labels, which had the same latent bug. Also: a DNS response no longer clobbers a captured JA3 for the same IP, and an opt-in `VARRO_DNS_DEBUG` logs capture counters for future diagnosis.
+
 ## [v1.4.0] — 2026-10-17
 - Deeper telemetry — TLS **JA3 fingerprinting**. The passive DNS/SNI watcher (Linux, AF_PACKET) now also computes the **JA3** fingerprint of each observed TLS ClientHello (GREASE-stripped, per spec) and labels outbound connections with it — so you can identify the *client* behind a TLS connection (tool/malware family) even when the destination IP/domain is new. JA3 is shown on the connections view and is a new **IOC type**: add known-malicious JA3 hashes (manually or via feeds) and Varro raises a threat match when a connection's fingerprint hits one — catching C2 clients independent of IP/domain. (First of several planned endpoint-telemetry deepenings; passive JA3 capture is Linux-only, like the DNS watcher.)
 
