@@ -80,7 +80,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 	if tr, err := ebpf.Start(); err == nil {
 		c.SetExecTracer(execAdapter{tr})
 		c.SetConnTracer(connAdapter{tr})
-		log.Info("eBPF sensors active (exec + connect)")
+		c.SetFileTracer(fileAdapter{tr})
+		log.Info("eBPF sensors active (exec + connect + file-write)")
 	} else if etr, eerr := etw.Start(); eerr == nil {
 		// Windows ETW exec sensor (opt-in, experimental — see internal/etw).
 		c.SetExecTracer(etr)
@@ -91,6 +92,15 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*Agent, error) {
 		// reaches the detection engine cross-platform.
 		c.SetExecTracer(collect.NewPollExecTracer())
 		log.Info("deep exec sensor unavailable; using portable polling exec sensor", "ebpf", err, "etw", eerr)
+	}
+
+	// Best-effort real-time (fanotify) FIM watcher; sits alongside the periodic
+	// FIM scan. Needs CAP_SYS_ADMIN; no-op on non-Linux or when unavailable.
+	if fw, err := collect.StartFIMWatch(); err == nil {
+		c.SetFIMWatcher(fw)
+		log.Info("fanotify FIM watcher active")
+	} else {
+		log.Info("fanotify FIM watcher unavailable; using periodic FIM only", "reason", err)
 	}
 
 	// Best-effort passive DNS watcher; labels topology with real domains.
@@ -134,6 +144,18 @@ func (a connAdapter) DrainConns() []model.ConnSample {
 	out := make([]model.ConnSample, 0, len(evs))
 	for _, e := range evs {
 		out = append(out, model.ConnSample{PID: e.PID, Comm: e.Comm, Dest: e.Dest, Port: e.Port})
+	}
+	return out
+}
+
+// fileAdapter converts the ebpf tracer's file-write events to the model type.
+type fileAdapter struct{ tr *ebpf.Tracer }
+
+func (a fileAdapter) DrainFiles() []model.FileSample {
+	evs := a.tr.DrainFiles()
+	out := make([]model.FileSample, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, model.FileSample{PID: e.PID, Comm: e.Comm, Path: e.Path})
 	}
 	return out
 }

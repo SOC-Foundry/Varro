@@ -7,7 +7,7 @@ workflows behind one live dashboard, REST API, Prometheus exporter, and CLI.
 Pure Go, no cgo: one static binary (`varro`) with subcommands, SQLite out of the
 box or Postgres (with HA) for scale.
 
-**Current release:** [v1.4.1](https://github.com/SOC-Foundry/Varro/releases/tag/v1.4.1) · [changelog](CHANGELOG.md)
+**Current release:** [v1.5.0](https://github.com/SOC-Foundry/Varro/releases/tag/v1.5.0) · [changelog](CHANGELOG.md)
 
 ## Capabilities
 
@@ -16,7 +16,9 @@ box or Postgres (with HA) for scale.
   inventory, and hardware; live dashboard, history (with long-range rollups),
   and a Prometheus scrape target.
 - **EDR & security** — short-lived process-exec capture (eBPF on Linux, ETW on
-  Windows, polling elsewhere), file-integrity monitoring, persistence / identity
+  Windows, polling elsewhere), kernel **file-write tamper sensing** on
+  persistence paths (`/etc`, `/boot`, `/root`; eBPF), file-integrity monitoring
+  (periodic **plus real-time** via fanotify), persistence / identity
   / SUID change events, threat-intel matching for IPs/domains/hashes with
   **STIX/TAXII + custom IOC** ingest, **Sigma + custom detection rules**, a
   threat-hunting console, incident management, and SOAR-style auto-response

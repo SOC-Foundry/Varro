@@ -6,13 +6,19 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"log"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 )
+
+// sensorDebug logs raw kernel-sensor events for live diagnosis when
+// VARRO_SENSOR_DEBUG is set. Off by default.
+var sensorDebug = os.Getenv("VARRO_SENSOR_DEBUG") != ""
 
 // ExecEvent is one observed process exec.
 type ExecEvent struct {
@@ -29,6 +35,15 @@ type ConnEvent struct {
 	Port uint16
 }
 
+// FileEvent is one openat()-for-write under a persistence root (/etc, /boot,
+// /root), attributed to the writing process. The root is gated in the kernel;
+// the agent refines to the paths it cares about.
+type FileEvent struct {
+	PID  uint32
+	Comm string
+	Path string
+}
+
 // Tracer attaches the exec + connect tracepoints and streams their events. It
 // is best-effort: if the kernel is too old, BPF is unavailable, or the agent
 // lacks privilege, Start returns an error and the agent runs without it. The
@@ -41,9 +56,13 @@ type Tracer struct {
 	connLink   link.Link
 	connReader *ringbuf.Reader
 
+	filesLink   link.Link
+	filesReader *ringbuf.Reader
+
 	mu      sync.Mutex
 	buf     []ExecEvent
 	connBuf []ConnEvent
+	fileBuf []FileEvent
 	closed  bool
 }
 
@@ -82,6 +101,25 @@ func Start() (*Tracer, error) {
 		} else {
 			clk.Close()
 		}
+	}
+
+	// File-write sensor, also best-effort within a working tracer.
+	if flk, err := link.Tracepoint("syscalls", "sys_enter_openat", t.objs.TraceOpenat, nil); err == nil {
+		if frd, err := ringbuf.NewReader(t.objs.Files); err == nil {
+			t.filesLink = flk
+			t.filesReader = frd
+			go t.loopFiles()
+			if sensorDebug {
+				log.Printf("varro file-sensor: openat tracepoint attached")
+			}
+		} else {
+			flk.Close()
+			if sensorDebug {
+				log.Printf("varro file-sensor: ringbuf reader failed: %v", err)
+			}
+		}
+	} else if sensorDebug {
+		log.Printf("varro file-sensor: openat tracepoint attach failed: %v", err)
 	}
 
 	go t.loop()
@@ -148,6 +186,36 @@ func (t *Tracer) loopConns() {
 	}
 }
 
+func (t *Tracer) loopFiles() {
+	for {
+		rec, err := t.filesReader.Read()
+		if err != nil {
+			if errors.Is(err, ringbuf.ErrClosed) {
+				return
+			}
+			continue
+		}
+		var e struct {
+			PID      uint32
+			Comm     [16]byte
+			Filename [256]byte
+		}
+		if err := binary.Read(bytes.NewReader(rec.RawSample), binary.LittleEndian, &e); err != nil {
+			continue
+		}
+		comm := string(bytes.TrimRight(e.Comm[:], "\x00"))
+		path := string(bytes.TrimRight(e.Filename[:], "\x00"))
+		if sensorDebug {
+			log.Printf("varro file-sensor raw: comm=%q path=%q", comm, path)
+		}
+		t.mu.Lock()
+		if !t.closed && len(t.fileBuf) < maxBuffered {
+			t.fileBuf = append(t.fileBuf, FileEvent{PID: e.PID, Comm: comm, Path: path})
+		}
+		t.mu.Unlock()
+	}
+}
+
 // Drain returns and clears the exec events buffered since the last call.
 func (t *Tracer) Drain() []ExecEvent {
 	t.mu.Lock()
@@ -166,6 +234,15 @@ func (t *Tracer) DrainConns() []ConnEvent {
 	return out
 }
 
+// DrainFiles returns and clears the file-write events buffered since the last call.
+func (t *Tracer) DrainFiles() []FileEvent {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := t.fileBuf
+	t.fileBuf = nil
+	return out
+}
+
 func (t *Tracer) Close() {
 	t.mu.Lock()
 	t.closed = true
@@ -176,11 +253,17 @@ func (t *Tracer) Close() {
 	if t.connReader != nil {
 		t.connReader.Close()
 	}
+	if t.filesReader != nil {
+		t.filesReader.Close()
+	}
 	if t.link != nil {
 		t.link.Close()
 	}
 	if t.connLink != nil {
 		t.connLink.Close()
+	}
+	if t.filesLink != nil {
+		t.filesLink.Close()
 	}
 	t.objs.Close()
 }

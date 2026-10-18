@@ -5,7 +5,9 @@ package collect
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -24,6 +26,10 @@ import (
 )
 
 const topProcesses = 30
+
+// collectDebug logs sensor drain/emit decisions for live diagnosis when
+// VARRO_SENSOR_DEBUG is set. Off by default.
+var collectDebug = os.Getenv("VARRO_SENSOR_DEBUG") != ""
 
 // Collector samples the local machine. It keeps previous-sample state (network
 // counters, process/listener/session sets, autostart fingerprints) to compute
@@ -59,7 +65,9 @@ type Collector struct {
 
 	execTracer execDrainer // eBPF exec sensor, nil when unavailable
 	connTracer connDrainer // eBPF connect sensor, nil when unavailable
+	fileTracer fileDrainer // eBPF file-write sensor, nil when unavailable
 	dns        dnsLookup   // passive DNS watcher, nil when unavailable
+	fimWatch   fimNotifier // fanotify real-time FIM watcher, nil when unavailable
 
 	declared     []model.DeclaredDep // cached declared deps (systemd + pg config)
 	declaredScan time.Time
@@ -94,6 +102,26 @@ type connDrainer interface {
 
 // SetConnTracer attaches the kernel connect sensor.
 func (c *Collector) SetConnTracer(t connDrainer) { c.connTracer = t }
+
+// fileDrainer is the eBPF file-write sensor the agent injects (writes to
+// persistence-root files, with process attribution).
+type fileDrainer interface {
+	DrainFiles() []model.FileSample
+}
+
+// SetFileTracer attaches the kernel file-write sensor.
+func (c *Collector) SetFileTracer(t fileDrainer) { c.fileTracer = t }
+
+// fimNotifier is the fanotify watcher the agent injects: it marks the FIM
+// watchlist and reports paths modified since the last drain, giving sub-poll
+// latency on top of the periodic hashing scan.
+type fimNotifier interface {
+	SetPaths([]string)
+	Drain() []string
+}
+
+// SetFIMWatcher attaches the real-time (fanotify) FIM watcher.
+func (c *Collector) SetFIMWatcher(n fimNotifier) { c.fimWatch = n }
 
 // dnsLookup resolves a remote IP to the hostname the host looked it up by, so
 // flows/connections can be labeled with real domains.
@@ -203,6 +231,35 @@ func (c *Collector) Sample(ctx context.Context) (*model.Snapshot, error) {
 			}
 			seen[k] = true
 			snap.Conns = append(snap.Conns, cn)
+		}
+	}
+	if c.fileTracer != nil {
+		// Distinct (comm,path) writes to persistence-root files since last sample.
+		// The kernel already gates to /etc,/boot,/root; refine to high-signal paths
+		// and emit each as an event so it flows to storage, hunts, and alerts.
+		seen := map[string]bool{}
+		n := 0
+		drained := c.fileTracer.DrainFiles()
+		if collectDebug {
+			log.Printf("varro file-drain: %d events drained", len(drained))
+		}
+		for _, f := range drained {
+			if collectDebug {
+				log.Printf("varro file-drain: path=%q comm=%q sensitive=%v", f.Path, f.Comm, sensitiveWrite(f.Path))
+			}
+			if !sensitiveWrite(f.Path) {
+				continue
+			}
+			k := f.Comm + "|" + f.Path
+			if seen[k] || n >= 50 {
+				continue
+			}
+			seen[k] = true
+			n++
+			snap.Events = append(snap.Events, model.Event{
+				Type:    model.EventFileWrite,
+				Message: fmt.Sprintf("persistence-path write: %s by %s[%d]", f.Path, f.Comm, f.PID),
+			})
 		}
 	}
 	snap.Inventory = c.pendingInv

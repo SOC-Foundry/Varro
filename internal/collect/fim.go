@@ -35,6 +35,9 @@ func (c *Collector) SetFIMPaths(paths []string) {
 	}
 	c.fimPaths = paths
 	c.fimState = nil
+	if c.fimWatch != nil {
+		c.fimWatch.SetPaths(paths)
+	}
 }
 
 // sampleFIM diffs the watched files every sample. Fingerprints (size+mtime)
@@ -74,9 +77,11 @@ func (c *Collector) sampleFIM(snap *model.Snapshot) {
 		}
 	}
 
+	reported := map[string]bool{} // paths the periodic diff already covered this sample
 	if c.fimState != nil {
 		n := 0
-		emit := func(msg string) {
+		emit := func(path, msg string) {
+			reported[path] = true
 			if n < maxFIMEvents {
 				snap.Events = append(snap.Events, model.Event{Type: model.EventFIMChange, Message: msg})
 				n++
@@ -86,18 +91,35 @@ func (c *Collector) sampleFIM(snap *model.Snapshot) {
 			prev, ok := c.fimState[path]
 			switch {
 			case !ok:
-				emit("watched file created: " + path + " (sha256 " + short(cur.hash) + ")")
+				emit(path, "watched file created: "+path+" (sha256 "+short(cur.hash)+")")
 			case prev.hash != cur.hash || (cur.hash == "" && prev.fingerprint != cur.fingerprint):
-				emit("watched file modified: " + path + " (sha256 " + short(prev.hash) + " -> " + short(cur.hash) + ")")
+				emit(path, "watched file modified: "+path+" (sha256 "+short(prev.hash)+" -> "+short(cur.hash)+")")
 			}
 		}
 		for path := range c.fimState {
 			if _, ok := current[path]; !ok {
-				emit("watched file removed: " + path)
+				emit(path, "watched file removed: "+path)
 			}
 		}
 	}
 	c.fimState = current
+
+	// fanotify adds sub-poll latency and catches transient edits (modify-then-
+	// revert) the hash diff above would miss. Only report paths the periodic scan
+	// didn't already surface this sample, so the two signals don't double up.
+	if c.fimWatch != nil {
+		n := 0
+		for _, path := range c.fimWatch.Drain() {
+			if reported[path] || n >= maxFIMEvents {
+				continue
+			}
+			n++
+			snap.Events = append(snap.Events, model.Event{
+				Type:    model.EventFIMRealtime,
+				Message: "watched file changed (real-time): " + path,
+			})
+		}
+	}
 }
 
 // fimVisit records one file, hashing only when the fingerprint changed since

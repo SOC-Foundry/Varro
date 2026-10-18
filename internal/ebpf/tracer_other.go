@@ -18,6 +18,13 @@ type ConnEvent struct {
 	Port uint16
 }
 
+// FileEvent mirrors the Linux type so callers compile everywhere.
+type FileEvent struct {
+	PID  uint32
+	Comm string
+	Path string
+}
+
 // Tracer is a no-op outside Linux.
 type Tracer struct{}
 
@@ -26,4 +33,5 @@ func Start() (*Tracer, error) { return nil, errors.New("eBPF exec sensor is Linu
 
 func (t *Tracer) Drain() []ExecEvent      { return nil }
 func (t *Tracer) DrainConns() []ConnEvent { return nil }
+func (t *Tracer) DrainFiles() []FileEvent { return nil }
 func (t *Tracer) Close()                  {}

@@ -18,10 +18,13 @@ import (
 const (
 	execMapConns         = "conns"
 	execMapEvents        = "events"
+	execMapFiles         = "files"
 	execProgTraceConnect = "trace_connect"
 	execProgTraceExec    = "trace_exec"
+	execProgTraceOpenat  = "trace_openat"
 	execVarUnusedConn    = "_unused_conn"
 	execVarUnusedEvent   = "_unused_event"
+	execVarUnusedFile    = "_unused_file"
 )
 
 // loadExec returns the embedded CollectionSpec for exec.
@@ -68,6 +71,7 @@ type execSpecs struct {
 type execProgramSpecs struct {
 	TraceConnect *ebpf.ProgramSpec `ebpf:"trace_connect"`
 	TraceExec    *ebpf.ProgramSpec `ebpf:"trace_exec"`
+	TraceOpenat  *ebpf.ProgramSpec `ebpf:"trace_openat"`
 }
 
 // execMapSpecs contains maps before they are loaded into the kernel.
@@ -76,6 +80,7 @@ type execProgramSpecs struct {
 type execMapSpecs struct {
 	Conns  *ebpf.MapSpec `ebpf:"conns"`
 	Events *ebpf.MapSpec `ebpf:"events"`
+	Files  *ebpf.MapSpec `ebpf:"files"`
 }
 
 // execVariableSpecs contains global variables before they are loaded into the kernel.
@@ -84,6 +89,7 @@ type execMapSpecs struct {
 type execVariableSpecs struct {
 	UnusedConn  *ebpf.VariableSpec `ebpf:"_unused_conn"`
 	UnusedEvent *ebpf.VariableSpec `ebpf:"_unused_event"`
+	UnusedFile  *ebpf.VariableSpec `ebpf:"_unused_file"`
 }
 
 // execObjects contains all objects after they have been loaded into the kernel.
@@ -108,12 +114,14 @@ func (o *execObjects) Close() error {
 type execMaps struct {
 	Conns  *ebpf.Map `ebpf:"conns"`
 	Events *ebpf.Map `ebpf:"events"`
+	Files  *ebpf.Map `ebpf:"files"`
 }
 
 func (m *execMaps) Close() error {
 	return _ExecClose(
 		m.Conns,
 		m.Events,
+		m.Files,
 	)
 }
 
@@ -123,6 +131,7 @@ func (m *execMaps) Close() error {
 type execVariables struct {
 	UnusedConn  *ebpf.Variable `ebpf:"_unused_conn"`
 	UnusedEvent *ebpf.Variable `ebpf:"_unused_event"`
+	UnusedFile  *ebpf.Variable `ebpf:"_unused_file"`
 }
 
 // execPrograms contains all programs after they have been loaded into the kernel.
@@ -131,12 +140,14 @@ type execVariables struct {
 type execPrograms struct {
 	TraceConnect *ebpf.Program `ebpf:"trace_connect"`
 	TraceExec    *ebpf.Program `ebpf:"trace_exec"`
+	TraceOpenat  *ebpf.Program `ebpf:"trace_openat"`
 }
 
 func (p *execPrograms) Close() error {
 	return _ExecClose(
 		p.TraceConnect,
 		p.TraceExec,
+		p.TraceOpenat,
 	)
 }
 
